@@ -17,3 +17,7 @@ add_test(NAME test_conv COMMAND test_conv)
 add_executable(test_serializer test_serializer.cpp)
 target_link_libraries(test_serializer PRIVATE qnet)
 add_test(NAME test_serializer COMMAND test_serializer)
+
+add_executable(test_backward test_backward.cpp)
+target_link_libraries(test_backward PRIVATE qnet)
+add_test(NAME test_backward COMMAND test_backward)

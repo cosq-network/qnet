@@ -31,6 +31,30 @@ struct Ops {
     static void matmul_backward(const Tensor& a, const Tensor& b,
                                 const Tensor& grad_output,
                                 Tensor& grad_a, Tensor& grad_b);
+
+    static void relu_backward(const Tensor& dy, const Tensor& x,
+                              Tensor& grad_x);
+
+    static void add_backward(const Tensor& dy, const Tensor& a, const Tensor& b,
+                             Tensor& grad_a, Tensor& grad_b);
+
+    static void mul_backward(const Tensor& dy, const Tensor& a, const Tensor& b,
+                             Tensor& grad_a, Tensor& grad_b);
+
+    static void sigmoid_backward(const Tensor& dy, const Tensor& out,
+                                 Tensor& grad_x);
+
+    static void softmax_backward(const Tensor& dy, const Tensor& out,
+                                 Tensor& grad_x);
+
+    static void conv2d_backward(const Tensor& dy, const Tensor& input,
+                                const Tensor& kernel,
+                                size_t stride_h, size_t stride_w,
+                                size_t pad_h, size_t pad_w,
+                                Tensor& grad_input, Tensor& grad_kernel);
+
+    static void embedding_backward(const Tensor& dy, const Tensor& indices,
+                                   Tensor& grad_weight);
 };
 
 } // namespace cosq::qnet

@@ -29,6 +29,12 @@ struct Node {
     Tensor gradient;
     std::string name;
 
+    // Conv2d attributes
+    size_t conv_stride_h = 1;
+    size_t conv_stride_w = 1;
+    size_t conv_pad_h = 0;
+    size_t conv_pad_w = 0;
+
     Node() = default;
     explicit Node(OpType type) : op_type(type) {}
 };

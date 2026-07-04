@@ -39,3 +39,5 @@ compile_commands.json
 
 # vcpkg
 vcpkg_installed/
+build_test3/
+build_/

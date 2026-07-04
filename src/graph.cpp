@@ -62,6 +62,28 @@ std::shared_ptr<Node> Graph::softmax(const std::shared_ptr<Node>& x) {
     return create_node(OpType::SOFTMAX, {x});
 }
 
+std::shared_ptr<Node> Graph::mul(const std::shared_ptr<Node>& a,
+                                  const std::shared_ptr<Node>& b) {
+    return create_node(OpType::MUL, {a, b});
+}
+
+std::shared_ptr<Node> Graph::conv2d(const std::shared_ptr<Node>& input,
+                                    const std::shared_ptr<Node>& kernel,
+                                    size_t stride_h, size_t stride_w,
+                                    size_t pad_h, size_t pad_w) {
+    auto node = create_node(OpType::CONV2D, {input, kernel});
+    node->conv_stride_h = stride_h;
+    node->conv_stride_w = stride_w;
+    node->conv_pad_h = pad_h;
+    node->conv_pad_w = pad_w;
+    return node;
+}
+
+std::shared_ptr<Node> Graph::embedding(const std::shared_ptr<Node>& weight,
+                                       const std::shared_ptr<Node>& indices) {
+    return create_node(OpType::EMBEDDING, {weight, indices});
+}
+
 void Graph::execute_node(Node* node) {
     switch (node->op_type) {
     case OpType::INPUT:
@@ -97,6 +119,29 @@ void Graph::execute_node(Node* node) {
     case OpType::SOFTMAX: {
         auto& x = node->inputs[0]->output;
         node->output = Ops::softmax(x);
+        break;
+    }
+
+    case OpType::MUL: {
+        auto& a = node->inputs[0]->output;
+        auto& b = node->inputs[1]->output;
+        node->output = Ops::mul(a, b);
+        break;
+    }
+
+    case OpType::CONV2D: {
+        auto& input = node->inputs[0]->output;
+        auto& kernel = node->inputs[1]->output;
+        node->output = Ops::conv2d(input, kernel,
+                                   node->conv_stride_h, node->conv_stride_w,
+                                   node->conv_pad_h, node->conv_pad_w);
+        break;
+    }
+
+    case OpType::EMBEDDING: {
+        auto& weight = node->inputs[0]->output;
+        auto& indices = node->inputs[1]->output;
+        node->output = Ops::embedding(weight, indices);
         break;
     }
 
@@ -200,26 +245,95 @@ void Graph::backward(const std::shared_ptr<Node>& output_node) {
             Tensor grad_b(b->output.shape());
             Ops::matmul_backward(a->output, b->output, node->gradient,
                                  grad_a, grad_b);
+            accumulate_grad(a, grad_a);
+            accumulate_grad(b, grad_b);
+            break;
+        }
 
-            if (a->gradient.size() == 0) {
-                a->gradient = grad_a;
-            } else {
-                Tensor tmp = Ops::add(a->gradient, grad_a);
-                a->gradient = std::move(tmp);
-            }
+        case OpType::ADD: {
+            auto& a = node->inputs[0];
+            auto& b = node->inputs[1];
+            Tensor grad_a(a->output.shape());
+            Tensor grad_b(b->output.shape());
+            Ops::add_backward(node->gradient, a->output, b->output,
+                              grad_a, grad_b);
+            accumulate_grad(a, grad_a);
+            accumulate_grad(b, grad_b);
+            break;
+        }
 
-            if (b->gradient.size() == 0) {
-                b->gradient = grad_b;
-            } else {
-                Tensor tmp = Ops::add(b->gradient, grad_b);
-                b->gradient = std::move(tmp);
-            }
+        case OpType::MUL: {
+            auto& a = node->inputs[0];
+            auto& b = node->inputs[1];
+            Tensor grad_a(a->output.shape());
+            Tensor grad_b(b->output.shape());
+            Ops::mul_backward(node->gradient, a->output, b->output,
+                              grad_a, grad_b);
+            accumulate_grad(a, grad_a);
+            accumulate_grad(b, grad_b);
+            break;
+        }
+
+        case OpType::RELU: {
+            auto& x = node->inputs[0];
+            Tensor grad_x(x->output.shape());
+            Ops::relu_backward(node->gradient, x->output, grad_x);
+            accumulate_grad(x, grad_x);
+            break;
+        }
+
+        case OpType::SIGMOID: {
+            auto& x = node->inputs[0];
+            Tensor grad_x(x->output.shape());
+            Ops::sigmoid_backward(node->gradient, node->output, grad_x);
+            accumulate_grad(x, grad_x);
+            break;
+        }
+
+        case OpType::SOFTMAX: {
+            auto& x = node->inputs[0];
+            Tensor grad_x(x->output.shape());
+            Ops::softmax_backward(node->gradient, node->output, grad_x);
+            accumulate_grad(x, grad_x);
+            break;
+        }
+
+        case OpType::CONV2D: {
+            auto& input = node->inputs[0];
+            auto& kernel = node->inputs[1];
+            Tensor grad_input(input->output.shape());
+            Tensor grad_kernel(kernel->output.shape());
+            Ops::conv2d_backward(node->gradient, input->output, kernel->output,
+                                 node->conv_stride_h, node->conv_stride_w,
+                                 node->conv_pad_h, node->conv_pad_w,
+                                 grad_input, grad_kernel);
+            accumulate_grad(input, grad_input);
+            accumulate_grad(kernel, grad_kernel);
+            break;
+        }
+
+        case OpType::EMBEDDING: {
+            auto& weight = node->inputs[0];
+            auto& indices = node->inputs[1];
+            Tensor grad_weight(weight->output.shape());
+            Ops::embedding_backward(node->gradient, indices->output, grad_weight);
+            accumulate_grad(weight, grad_weight);
             break;
         }
 
         default:
             break;
         }
+    }
+}
+
+void Graph::accumulate_grad(const std::shared_ptr<Node>& node,
+                            const Tensor& grad) {
+    if (node->gradient.size() == 0) {
+        node->gradient = grad;
+    } else {
+        Tensor tmp = Ops::add(node->gradient, grad);
+        node->gradient = std::move(tmp);
     }
 }
 

@@ -1,167 +1,289 @@
 # qnet Implementation Roadmap
 
-> Project status as of July 2026
+> Project status as of July 2026 — building toward production AI model capability.
 
 ---
 
-## Phase 1 — Tensor Infrastructure & Striding Logic
+## ✅ Phase 1 — Tensor Infrastructure
 
-**Status:** ✅ Complete
+**Status:** Complete
 
 - [x] Contiguous N-dimensional storage (`std::vector<float>`)
-- [x] Stride-based index calculation: `index = offset + Σ(coord_i × stride_i)`
+- [x] Stride-based index calculation
 - [x] Row-major stride computation
 - [x] Deep copy (clone) vs. zero-copy view semantics (slice, view)
 - [x] Gradient buffer allocation (lazy)
 - [x] Bounds-checked element access via `at(indices)`
 - [x] `shape_string()` and `print_data()` utilities
 
-**Files:**
-- `include/qnet/tensor.hpp`
-- `src/tensor.cpp`
+**Files:** `include/qnet/tensor.hpp`, `src/tensor.cpp`
 
 ---
 
-## Phase 2 — OpenBLAS Mapping Layer
+## ✅ Phase 2 — OpenBLAS Mapping Layer
 
-**Status:** ✅ Complete
+**Status:** Complete
 
 - [x] `cblas_sgemm` C++ wrapper in `cosq::qnet::blas` namespace
 - [x] Row-major GEMM with transpose support
-- [x] `Ops::matmul` uses BLAS sgemm instead of Eigen
-- [x] `Ops::matmul_backward` uses BLAS sgemm for gradient propagation
+- [x] `Ops::matmul` uses BLAS sgemm
+- [x] `Ops::matmul_backward` uses BLAS sgemm
+- [x] Batched GEMM (`sgemm_batch`) with loop fallback
 - [x] F32 precision throughout
 
-**Files:**
-- `include/qnet/blas.hpp`
-- `src/blas.cpp`
+**Files:** `include/qnet/blas.hpp`, `src/blas.cpp`
 
 ---
 
-## Phase 3 — Autograd DAG Engine
+## ✅ Phase 3 — Autograd DAG Engine
 
-**Status:** ✅ Complete
+**Status:** Complete
 
-- [x] Node graph with `OpType` enum (INPUT, PARAMETER, MATMUL, ADD, RELU, SIGMOID, SOFTMAX)
-- [x] Topological sort forward pass execution
+- [x] Node graph with `OpType` enum (INPUT, PARAMETER, MATMUL, ADD, MUL, RELU, SIGMOID, SOFTMAX, CONV2D, EMBEDDING)
+- [x] Topological sort forward pass
 - [x] Reverse topological sort backward pass
 - [x] Gradient accumulation across multiple uses
-- [x] `Graph::variable()` / `Graph::parameter()` for inputs
+- [x] `Graph::variable()` / `Graph::parameter()`
 - [x] `Graph::forward(output_node)` / `Graph::backward(output_node)`
-- [x] `Graph::zero_grad()` to reset gradients
+- [x] `Graph::zero_grad()`
+- [x] Thread-pool parallel forward execution (depth-grouped nodes)
 
-**Files:**
-- `include/qnet/node.hpp`
-- `include/qnet/graph.hpp`
-- `src/graph.cpp`
+**Files:** `include/qnet/node.hpp`, `include/qnet/graph.hpp`, `src/graph.cpp`
 
 ---
 
-## Phase 4 — Deep Learning Block Expansion
+## ✅ Phase 4 — Ops & DL Blocks
 
-**Status:** ✅ Complete
+**Status:** Complete
 
 - [x] `Ops::relu` — element-wise ReLU
 - [x] `Ops::sigmoid` — element-wise sigmoid
 - [x] `Ops::softmax` — batch softmax (stable via max subtraction)
-- [x] `Ops::conv2d` — NCHW convolution with padding/stride
-- [x] `Ops::embedding` — lookup table embedding
+- [x] `Ops::conv2d` — im2col + GEMM convolution
+- [x] `Ops::embedding` — lookup table
 - [x] `Ops::add` / `Ops::mul` — element-wise arithmetic
+- [x] `Ops::matmul` / `Ops::matmul_backward`
+- [x] SIMD-accelerated paths: relu, add, mul, sigmoid (NEON/AVX/SSE2)
 
-**Files:**
-- `include/qnet/ops.hpp`
-- `src/ops.cpp`
+**Files:** `include/qnet/ops.hpp`, `src/ops.cpp`, `include/qnet/simd.hpp`
 
 ---
 
-## Phase 5 — Safetensors / Weight Ingestion
+## ✅ Phase 5 — Safetensors I/O
 
-**Status:** ✅ Complete
+**Status:** Complete
 
-- [x] SafeTensors binary format parser (header: JSON, body: raw floats)
-- [x] 8-byte header size + JSON header parsing
-- [x] F32 dtype support
+- [x] SafeTensors binary format parser (JSON header + raw floats)
 - [x] Multi-tensor file support
-- [x] Named tensor lookup with `load_tensor(name)`
-- [x] Bounds checking and error reporting
+- [x] Named tensor lookup
+- [x] SafeTensorsWriter for weight export
+- [x] Graph weight export/import via safetensors
 
-**Format supported:**
-```
-[8 bytes: header_size (LE u64)]
-[header_size bytes: JSON header]
-[remaining: raw float data]
-```
-
-**Files:**
-- `include/qnet/safetensors.hpp`
-- `src/safetensors.cpp`
+**Files:** `include/qnet/safetensors.hpp`, `src/safetensors.cpp`, `include/qnet/serializer.hpp`, `src/serializer.cpp`
 
 ---
 
-## Phase 6 — Portability Layers
+## ✅ Phase 6 — Graph Serialization
 
-**Status:** 🔧 Implemented (requires external SDKs to build)
+**Status:** Complete
 
-- [x] **pybind11 module** (`src/bindings/python.cpp`):
-  - Tensor construction, access, cloning
-  - Graph building (variable, parameter, matmul, add, relu, sigmoid, softmax)
-  - Forward and backward pass
-  - SafeTensors reader
-- [x] **Emscripten WASM target** (`cmake/emscripten.cmake`):
-  - Static library build for WebAssembly
-  - Memory growth enabled
-  - LTO + O3 optimization flags
+- [x] Binary `.qnet` format (magic + version + per-node topology + weights + grad)
+- [x] `GraphSerializer::save(graph, path)` / `GraphSerializer::load(path)`
+- [x] `GraphSerializer::export_safetensors()` / `import_safetensors()`
 
-**Build notes:**
-- Python bindings: `cmake -DBUILD_PYTHON_BINDINGS=ON` (requires pybind11)
-- WASM: `emcmake cmake -B build_wasm -DCMAKE_TOOLCHAIN_FILE=<emsdk>/cmake/Modules/Platform/Emscripten.cmake`
-
-**Files:**
-- `src/bindings/python.cpp`
-- `cmake/emscripten.cmake`
+**Files:** `include/qnet/serializer.hpp`, `src/serializer.cpp`
 
 ---
 
-## Test Coverage
+## ✅ Phase 7 — Portability & Build
 
-| Test suite | File | Status |
-|---|---|---|
-| Tensor construction, access, slicing, views, clone, grad | `tests/test_tensor.cpp` | ✅ 7 tests |
-| Graph forward + backward pass | `tests/test_graph.cpp` | ✅ 2 tests |
-| SafeTensors read + multi-tensor | `tests/test_safetensors.cpp` | ✅ 2 tests |
+**Status:** Complete
 
-**Total:** 11 tests, all passing.
+- [x] pybind11 module (`src/bindings/python.cpp`)
+- [x] Emscripten WASM target (`cmake/emscripten.cmake`)
+- [x] CMake install rules (lib + headers)
+- [x] `find_package(qnet)` via `qnetConfig.cmake` + version file
+- [x] CPack platform packages: DEB, RPM, DMG, NSIS, TGZ, ZIP
+- [x] CI pipeline: macOS/Linux/Windows, vcpkg, test, package
+- [x] `.gitignore` + MIT LICENSE
+
+**Files:** `CMakeLists.txt`, `cmake/qnetConfig.cmake.in`, `.github/workflows/ci.yml`, `.gitignore`, `LICENSE`
 
 ---
 
-## Project Structure
+## ✅ Phase 8 — Complete Autograd (Backward Pass)
 
-```
-qnet/
-├── CMakeLists.txt              # Build system
-├── vcpkg.json                  # Manifest: openblas, eigen3
-├── cmake/
-│   └── emscripten.cmake        # WASM toolchain helper
-├── include/qnet/
-│   ├── tensor.hpp              # ND strided tensor
-│   ├── blas.hpp                # OpenBLAS sgemm wrapper
-│   ├── node.hpp                # Graph node definition
-│   ├── graph.hpp               # Computation graph
-│   ├── ops.hpp                 # Math operations
-│   └── safetensors.hpp         # SafeTensors reader
-├── src/
-│   ├── tensor.cpp
-│   ├── blas.cpp
-│   ├── graph.cpp
-│   ├── ops.cpp
-│   ├── safetensors.cpp
-│   └── bindings/
-│       └── python.cpp          # pybind11 module
-├── tests/
-│   ├── CMakeLists.txt
-│   ├── test_tensor.cpp
-│   ├── test_graph.cpp
-│   └── test_safetensors.cpp
-└── docs/
-    └── roadmap.md              # This file
-```
+**Status:** Complete
+
+- [x] `Ops::relu_backward(dy, x)` — mask `dy` where `x > 0`
+- [x] `Ops::add_backward(dy, a, b)` — equal-shape gradient split
+- [x] `Ops::mul_backward(dy, a, b)` — `da = dy * b`, `db = dy * a`
+- [x] `Ops::sigmoid_backward(dy, out)` — `dy * out * (1 - out)`
+- [x] `Ops::softmax_backward(dy, out)` — Jacobian: `out * (dy - sum(out * dy, dim))`
+- [x] `Ops::conv2d_backward(dy, input, kernel)` — im2col + GEMM weight/input gradients
+- [x] `Ops::embedding_backward(dy, indices)` — gradient scatter to lookup rows
+- [x] Wire all backward ops into `Graph::backward()` via `OpType` dispatch
+- [x] Forward + backward for `MUL`, `CONV2D`, `EMBEDDING` in `execute_node`
+- [x] `Graph::mul()`, `Graph::conv2d()`, `Graph::embedding()` builder methods
+- [x] Numerical gradient check for every op
+
+**Files:** `include/qnet/ops.hpp`, `src/ops.cpp`, `include/qnet/node.hpp`, `include/qnet/graph.hpp`, `src/graph.cpp`, `tests/test_backward.cpp`
+
+---
+
+## 🔧 Phase 9 — Loss Functions
+
+**Priority: HIGH**
+
+- [ ] `Ops::cross_entropy_loss(logits, targets)` — softmax + NLL combined (stable)
+- [ ] `Ops::cross_entropy_backward(logits, targets)` — `(softmax - one_hot) / N`
+- [ ] `Ops::mse_loss(pred, target)` — mean squared error
+- [ ] `Ops::mse_backward(pred, target)` — `2 * (pred - target) / N`
+- [ ] `Ops::binary_cross_entropy(pred, target)` — BCE with logits
+- [ ] `Ops::bce_backward(pred, target)` — gradient
+- [ ] Unit tests with gradient checks
+
+---
+
+## 🔧 Phase 10 — Optimizers
+
+**Priority: HIGH**
+
+- [ ] `Optimizer` base class — `step()`, `zero_grad()`, parameter list
+- [ ] `SGD` — weight decay, momentum, Nesterov
+- [ ] `Adam` — bias-corrected first/second moment estimates
+- [ ] `AdamW` — decoupled weight decay
+- [ ] Parameter group support (per-layer learning rates)
+- [ ] Gradient clipping (norm & value)
+- [ ] Learning rate schedulers (step, cosine, linear warmup)
+- [ ] Unit tests: verify weight updates match reference values
+
+---
+
+## 🔧 Phase 11 — Layer Abstractions
+
+**Priority: HIGH**
+
+- [ ] `Layer` base class — `forward()`, `parameters()`, `name`
+- [ ] `Linear(in_features, out_features, bias)` — weight `[out, in]`, bias `[out]`
+- [ ] `Conv2d(in_c, out_c, kernel, stride, pad)` — wraps im2col conv
+- [ ] `Embedding(vocab_size, dim)` — lookup table wrapper
+- [ ] `LayerNorm(normalized_shape, eps, elementwise_affine)`
+- [ ] `BatchNorm1d` / `BatchNorm2d` — running mean/var, affine
+- [ ] `Dropout(rate)` — training-time masking + scaling
+- [ ] `Sequential` — ordered container, forward chains layers
+- [ ] `Module` / `Model` — parameter registration, train/eval mode
+- [ ] Layer unit tests: output shape, parameter count, forward correctness
+
+---
+
+## 🔧 Phase 12 — Transformer Building Blocks
+
+**Priority: MEDIUM**
+
+- [ ] `MultiHeadAttention(d_model, n_heads, causal)` — scaled dot-product
+- [ ] `RoPE` (Rotary Position Embedding) — frequency-based rotation
+- [ ] `GELU` activation (tanh approximation)
+- [ ] `SiLU` / `Swish` activation
+- [ ] `FeedForward(d_model, d_ff, activation)` — up/gate/down projections
+- [ ] `TransformerBlock(d_model, n_heads, d_ff, dropout)` — attention + FFN
+- [ ] `CausalMask` — upper-triangular attention mask
+- [ ] KV-cache for incremental decoding
+- [ ] Unit tests: attention output shape, causal mask, RoPE rotation
+
+---
+
+## 🔧 Phase 13 — Training Loop Infrastructure
+
+**Priority: MEDIUM**
+
+- [ ] `DataLoader` — batching, shuffling, iteration
+- [ ] `Dataset` base class + `TensorDataset`
+- [ ] `Trainer` — epoch loop, batch step, metric logging
+- [ ] Checkpoint save/load (optimizer state + model weights)
+- [ ] Early stopping
+- [ ] Metrics: accuracy, perplexity
+- [ ] Mixed precision training scaffolding (F32 fallback initially)
+
+---
+
+## 🔧 Phase 14 — Quantization & Reduced Precision
+
+**Priority: LOW**
+
+- [ ] FP16 tensor storage + conversion helpers
+- [ ] INT8 quantization — per-tensor and per-channel
+- [ ] Quantized matmul (INT8 x INT8 → INT32 → F32)
+- [ ] Quantization-aware training (QAT) stubs
+- [ ] Dynamic quantization for inference
+
+---
+
+## 🔧 Phase 15 — GPU / Accelerator Backend
+
+**Priority: LOW**
+
+- [ ] Metal Performance Shaders (MPS) backend for Apple Silicon
+- [ ] CUDA backend stub with device memory management
+- [ ] Kernel: matmul, relu, add, mul on GPU
+- [ ] Automatic fallback: GPU if available, else CPU
+- [ ] Host-device transfer utilities
+
+---
+
+## 🔧 Phase 16 — Model Zoo & Examples
+
+**Priority: LOW**
+
+- [ ] MLP on MNIST (training + inference)
+- [ ] ConvNet on CIFAR-10
+- [ ] GPT-style small language model
+- [ ] Transformer encoder for text classification
+- [ ] ImageNet-style classifier (ResNet-18)
+- [ ] Inference-only example with pretrained safetensors weights
+- [ ] Python notebook examples (via pybind11)
+
+---
+
+## 🔧 Phase 17 — ONNX / Interoperability
+
+**Priority: LOW**
+
+- [ ] ONNX export — graph → ONNX protobuf
+- [ ] ONNX import — ONNX → qnet graph
+- [ ] Supported ops: MatMul, Add, Relu, Sigmoid, Softmax, Conv, Gemm
+- [ ] Shape inference on import
+
+---
+
+## 🔧 Phase 18 — Performance & Production Hardening
+
+**Priority: LOW**
+
+- [ ] Benchmark suite: matmul GFLOPs, conv throughput, end-to-end latency
+- [ ] Memory profiling: tensor allocation tracking
+- [ ] Fused kernels: `Linear+ReLU`, `Conv+BN+ReLU`
+- [ ] Custom allocator (arena / slab)
+- [ ] Thread pool affinity / pinning for NUMA
+- [ ] CI benchmark tracking (prevent regressions)
+
+---
+
+## Summary
+
+| Phase | Area | Priority | Status |
+|---|---|---|---|
+| 1–7 | Core, portability, build, CI | — | ✅ Done |
+| 8 | Complete backward pass | HIGH | ✅ Done |
+| 9 | Loss functions | HIGH | 🔧 Not started |
+| 10 | Optimizers | HIGH | 🔧 Not started |
+| 11 | Layer abstractions | HIGH | 🔧 Not started |
+| 12 | Transformer blocks | MEDIUM | 🔧 Not started |
+| 13 | Training loop | MEDIUM | 🔧 Not started |
+| 14 | Quantization | LOW | 🔧 Not started |
+| 15 | GPU backend | LOW | 🔧 Not started |
+| 16 | Model zoo & examples | LOW | 🔧 Not started |
+| 17 | ONNX | LOW | 🔧 Not started |
+| 18 | Performance hardening | LOW | 🔧 Not started |
+
+**Next concrete step:** Implement loss functions (cross-entropy, MSE, BCE) and their backward passes — then optimizers (SGD, Adam, AdamW) to enable the first end-to-end training loop.

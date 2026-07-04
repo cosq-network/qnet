@@ -35,6 +35,17 @@ public:
 
     std::shared_ptr<Node> softmax(const std::shared_ptr<Node>& x);
 
+    std::shared_ptr<Node> mul(const std::shared_ptr<Node>& a,
+                              const std::shared_ptr<Node>& b);
+
+    std::shared_ptr<Node> conv2d(const std::shared_ptr<Node>& input,
+                                 const std::shared_ptr<Node>& kernel,
+                                 size_t stride_h = 1, size_t stride_w = 1,
+                                 size_t pad_h = 0, size_t pad_w = 0);
+
+    std::shared_ptr<Node> embedding(const std::shared_ptr<Node>& weight,
+                                   const std::shared_ptr<Node>& indices);
+
     void forward(const std::shared_ptr<Node>& output_node);
 
     void backward(const std::shared_ptr<Node>& output_node);
@@ -55,6 +66,9 @@ private:
                                       const std::vector<std::shared_ptr<Node>>& inputs);
 
     static void execute_node(Node* node);
+
+    static void accumulate_grad(const std::shared_ptr<Node>& node,
+                                const Tensor& grad);
 };
 
 } // namespace cosq::qnet
