@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qnet/export.hpp>
 #include <qnet/graph.hpp>
 #include <qnet/tensor.hpp>
 
@@ -9,7 +10,7 @@
 
 namespace cosq::qnet {
 
-class SafeTensorsWriter {
+class QNET_API SafeTensorsWriter {
 public:
     SafeTensorsWriter();
     void add_tensor(const std::string& name, const Tensor& tensor);
@@ -24,7 +25,7 @@ private:
     std::string build_header() const;
 };
 
-struct GraphSerializer {
+struct QNET_API GraphSerializer {
     static void save(const Graph& graph, const std::string& filepath);
 
     static Graph load(const std::string& filepath,

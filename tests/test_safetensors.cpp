@@ -1,12 +1,22 @@
 #include <qnet/safetensors.hpp>
 
 #include <cassert>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <vector>
 
+namespace fs = std::filesystem;
+
 using namespace cosq::qnet;
+
+static std::string temp_path(const std::string& name) {
+    auto tmp = fs::temp_directory_path();
+    return (tmp / name).string();
+}
 
 static bool approx(float a, float b, float eps = 1e-5f) {
     return std::abs(a - b) < eps;
@@ -27,7 +37,7 @@ static void create_test_file(const std::string& path) {
 }
 
 static void test_reader() {
-    std::string path = "/tmp/test_qnet.safetensors";
+    std::string path = temp_path("test_qnet.safetensors");
     create_test_file(path);
 
     SafeTensorsReader reader(path);
@@ -50,7 +60,7 @@ static void test_reader() {
 }
 
 static void test_multi_tensor() {
-    std::string path = "/tmp/test_qnet_multi.safetensors";
+    std::string path = temp_path("test_qnet_multi.safetensors");
     {
         std::string header = R"({"weight":{"dtype":"F32","shape":[2,2],"data_offsets":[0,16]},"bias":{"dtype":"F32","shape":[2],"data_offsets":[16,24]}})";
         uint64_t header_size = header.size();

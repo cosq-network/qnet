@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qnet/export.hpp>
 #include <qnet/tensor.hpp>
 
 #include <memory>
@@ -27,7 +28,7 @@ enum class OpType {
     LAYER_NORM = 15
 };
 
-struct Node {
+struct QNET_API Node {
     OpType op_type = OpType::NONE;
     std::vector<std::shared_ptr<Node>> inputs;
     Tensor output;

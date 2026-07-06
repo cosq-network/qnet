@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qnet/export.hpp>
 #include <qnet/tensor.hpp>
 
 #include <memory>
@@ -9,7 +10,7 @@ namespace cosq::qnet {
 
 struct Node;
 
-struct Ops {
+struct QNET_API Ops {
     static Tensor matmul(const Tensor& a, const Tensor& b);
 
     static Tensor add(const Tensor& a, const Tensor& b);

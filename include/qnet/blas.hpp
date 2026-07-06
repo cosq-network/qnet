@@ -1,11 +1,13 @@
 #pragma once
 
+#include <qnet/export.hpp>
+
 #include <cstddef>
 
 namespace cosq::qnet {
 namespace blas {
 
-void sgemm(bool transA, bool transB,
+QNET_API void sgemm(bool transA, bool transB,
            size_t M, size_t N, size_t K,
            float alpha,
            const float* A, size_t lda,
@@ -13,7 +15,7 @@ void sgemm(bool transA, bool transB,
            float beta,
            float* C, size_t ldc);
 
-void sgemm_batch(bool transA, bool transB,
+QNET_API void sgemm_batch(bool transA, bool transB,
                  size_t M, size_t N, size_t K,
                  float alpha,
                  const float* const* A, size_t lda,

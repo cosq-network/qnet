@@ -3,10 +3,20 @@
 #include <qnet/serializer.hpp>
 
 #include <cassert>
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 
+namespace fs = std::filesystem;
+
 using namespace cosq::qnet;
+
+static std::string temp_path(const std::string& name) {
+    auto tmp = fs::temp_directory_path();
+    return (tmp / name).string();
+}
 
 static bool approx(float a, float b, float eps = 1e-5f) {
     return std::abs(a - b) < eps;
@@ -26,7 +36,7 @@ static void test_save_load() {
     float expected_0 = out->output.data()[0];
     float expected_1 = out->output.data()[1];
 
-    std::string path = "/tmp/test_qnet_graph.qnet";
+    std::string path = temp_path("test_qnet_graph.qnet");
     GraphSerializer::save(graph, path);
 
     std::unordered_map<std::string, std::shared_ptr<Node>> named_nodes;
@@ -34,7 +44,7 @@ static void test_save_load() {
 
     assert(loaded.nodes().size() == graph.nodes().size());
 
-    std::string safetensors_path = "/tmp/test_qnet_weights.safetensors";
+    std::string safetensors_path = temp_path("test_qnet_weights.safetensors");
     GraphSerializer::export_safetensors(graph, safetensors_path);
 
     std::cout << "  [PASS] test_save_load\n";
@@ -50,7 +60,7 @@ static void test_safetensors_roundtrip() {
     auto w1 = graph.parameter(W1);
     auto w2 = graph.parameter(W2);
 
-    std::string path = "/tmp/test_qnet_st.safetensors";
+    std::string path = temp_path("test_qnet_st.safetensors");
     GraphSerializer::export_safetensors(graph, path);
 
     Graph graph2;

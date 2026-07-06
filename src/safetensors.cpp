@@ -1,6 +1,7 @@
 #include <qnet/safetensors.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>

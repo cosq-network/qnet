@@ -1,5 +1,7 @@
 #pragma once
 
+#include <qnet/export.hpp>
+
 #include <cstddef>
 #include <iostream>
 #include <string>
@@ -7,7 +9,7 @@
 
 namespace cosq::qnet {
 
-class Tensor {
+class QNET_API Tensor {
 public:
     using DataType = float;
 

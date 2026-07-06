@@ -1,5 +1,7 @@
 #pragma once
 
+#include <qnet/export.hpp>
+
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
@@ -11,7 +13,7 @@
 
 namespace cosq::qnet {
 
-class ThreadPool {
+class QNET_API ThreadPool {
 public:
     explicit ThreadPool(size_t num_threads = 0);
     ~ThreadPool();

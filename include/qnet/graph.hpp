@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qnet/export.hpp>
 #include <qnet/node.hpp>
 #include <qnet/tensor.hpp>
 #include <qnet/thread_pool.hpp>
@@ -9,7 +10,7 @@
 
 namespace cosq::qnet {
 
-class Graph {
+class QNET_API Graph {
 public:
     explicit Graph(size_t num_threads = 0);
     ~Graph() = default;
