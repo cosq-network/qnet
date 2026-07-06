@@ -43,16 +43,29 @@ jobs:
         # Sync builtin-baseline to match the cloned repository's HEAD
         BASELINE=$(git -C "${{ runner.temp }}/vcpkg" rev-parse HEAD)
         echo "Syncing vcpkg baseline to $BASELINE"
-        sed -i "s/\"builtin-baseline\": \".*\"/\"builtin-baseline\": \"$BASELINE\"/" vcpkg.json
+        python3 - <<PY
+        import json
+
+        path = "vcpkg.json"
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        data["builtin-baseline"] = "${BASELINE}"
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        PY
 
     - name: Restore vcpkg build artifacts
       uses: actions/cache@v4
       with:
         path: |
+          ${{ runner.temp }}/vcpkg_installed
           ${{ runner.temp }}/vcpkg/buildtrees
           ${{ runner.temp }}/vcpkg/packages
           ${{ runner.temp }}/vcpkg/downloads
-        key: vcpkg-build-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
+        key: vcpkg-build-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}
         restore-keys: |
           vcpkg-build-${{ matrix.os }}-${{ hashFiles('vcpkg.json') }}-
           vcpkg-build-${{ matrix.os }}-
@@ -63,6 +76,7 @@ jobs:
         cmake -B build -S . \
           -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
           -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+          -DVCPKG_INSTALLED_DIR="${{ runner.temp }}/vcpkg_installed" \
           -DBUILD_TESTS=ON \
           -DBUILD_PYTHON_BINDINGS=OFF
 
@@ -75,11 +89,13 @@ jobs:
       run: ctest --test-dir build --output-on-failure -C ${{ env.BUILD_TYPE }}
 
     - name: Package (CPack)
+      if: github.event_name == 'release'
       shell: bash
       run: |
         cpack --config build/CPackConfig.cmake -B "${{ runner.temp }}/packages"
 
     - name: Upload artifact
+      if: github.event_name == 'release'
       uses: actions/upload-artifact@v4
       with:
         name: qnet-${{ matrix.os }}-${{ env.BUILD_TYPE }}
