@@ -45,6 +45,41 @@ static void im2col(const float* input, size_t C, size_t H, size_t W,
     }
 }
 
+static std::vector<size_t> broadcast_shape(const Tensor& a, const Tensor& b) {
+    if (a.ndim() != b.ndim()) {
+        throw std::invalid_argument("broadcast requires tensors with the same rank");
+    }
+
+    std::vector<size_t> shape(a.ndim());
+    for (size_t i = 0; i < a.ndim(); ++i) {
+        size_t ad = a.shape()[i];
+        size_t bd = b.shape()[i];
+        if (ad != bd && ad != 1 && bd != 1) {
+            throw std::invalid_argument("tensors are not broadcast-compatible");
+        }
+        shape[i] = std::max(ad, bd);
+    }
+    return shape;
+}
+
+static size_t offset_for_index(const Tensor& tensor, const std::vector<size_t>& index) {
+    size_t offset = tensor.offset();
+    for (size_t dim = 0; dim < tensor.ndim(); ++dim) {
+        size_t coordinate = tensor.shape()[dim] == 1 ? 0 : index[dim];
+        offset += coordinate * tensor.strides()[dim];
+    }
+    return offset;
+}
+
+static std::vector<size_t> unravel_index(size_t flat, const std::vector<size_t>& shape) {
+    std::vector<size_t> index(shape.size(), 0);
+    for (size_t dim = shape.size(); dim-- > 0;) {
+        index[dim] = flat % shape[dim];
+        flat /= shape[dim];
+    }
+    return index;
+}
+
 Tensor Ops::matmul(const Tensor& a, const Tensor& b) {
     if (a.ndim() != 2 || b.ndim() != 2) {
         throw std::invalid_argument("matmul requires 2D tensors");
@@ -69,12 +104,19 @@ Tensor Ops::matmul(const Tensor& a, const Tensor& b) {
 }
 
 Tensor Ops::add(const Tensor& a, const Tensor& b) {
-    if (a.shape() != b.shape()) {
-        throw std::invalid_argument("add requires equal-shaped tensors");
+    std::vector<size_t> result_shape = broadcast_shape(a, b);
+    Tensor result(result_shape);
+
+    if (a.shape() == b.shape()) {
+        simd::add(result.data(), a.data(), b.data(), a.size());
+        return result;
     }
 
-    Tensor result(a.shape());
-    simd::add(result.data(), a.data(), b.data(), a.size());
+    for (size_t i = 0; i < result.size(); ++i) {
+        std::vector<size_t> index = unravel_index(i, result_shape);
+        result.data()[i] = a.data()[offset_for_index(a, index)] +
+                           b.data()[offset_for_index(b, index)];
+    }
     return result;
 }
 
@@ -361,11 +403,35 @@ void Ops::relu_backward(const Tensor& dy, const Tensor& x,
 
 void Ops::add_backward(const Tensor& dy, const Tensor& a, const Tensor& b,
                        Tensor& grad_a, Tensor& grad_b) {
+    if (dy.shape() != broadcast_shape(a, b)) {
+        throw std::invalid_argument("add_backward gradient shape mismatch");
+    }
+
+    if (a.shape() == b.shape()) {
+        if (grad_a.size() > 0) {
+            std::memcpy(grad_a.data(), dy.data(), dy.bytes());
+        }
+        if (grad_b.size() > 0) {
+            std::memcpy(grad_b.data(), dy.data(), dy.bytes());
+        }
+        return;
+    }
+
     if (grad_a.size() > 0) {
-        std::memcpy(grad_a.data(), dy.data(), dy.bytes());
+        std::memset(grad_a.data(), 0, grad_a.bytes());
     }
     if (grad_b.size() > 0) {
-        std::memcpy(grad_b.data(), dy.data(), dy.bytes());
+        std::memset(grad_b.data(), 0, grad_b.bytes());
+    }
+
+    for (size_t i = 0; i < dy.size(); ++i) {
+        std::vector<size_t> index = unravel_index(i, dy.shape());
+        if (grad_a.size() > 0) {
+            grad_a.data()[offset_for_index(a, index)] += dy.data()[i];
+        }
+        if (grad_b.size() > 0) {
+            grad_b.data()[offset_for_index(b, index)] += dy.data()[i];
+        }
     }
 }
 

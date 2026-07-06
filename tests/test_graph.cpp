@@ -84,6 +84,30 @@ static void test_forward_add_mul() {
     std::cout << "  [PASS] test_forward_add_mul\n";
 }
 
+static void test_forward_add_broadcast() {
+    Graph graph;
+    auto x = graph.variable(Tensor({2, 3}, {1, 2, 3,
+                                            4, 5, 6}));
+    auto bias = graph.parameter(Tensor({1, 3}, {10, 20, 30}));
+
+    auto y = graph.add(x, bias);
+    graph.forward(y);
+
+    assert(approx(y->output.at({0, 0}), 11.0f));
+    assert(approx(y->output.at({0, 2}), 33.0f));
+    assert(approx(y->output.at({1, 0}), 14.0f));
+    assert(approx(y->output.at({1, 2}), 36.0f));
+
+    graph.backward(y);
+    assert(approx(x->gradient.at({0, 0}), 1.0f));
+    assert(approx(x->gradient.at({1, 2}), 1.0f));
+    assert(approx(bias->gradient.at({0, 0}), 2.0f));
+    assert(approx(bias->gradient.at({0, 1}), 2.0f));
+    assert(approx(bias->gradient.at({0, 2}), 2.0f));
+
+    std::cout << "  [PASS] test_forward_add_broadcast\n";
+}
+
 static void test_graph_multi_output() {
     Graph graph;
     auto x = graph.variable(Tensor({1, 2}, {1, 2}));
@@ -138,6 +162,7 @@ int main() {
     test_forward();
     test_forward_activations();
     test_forward_add_mul();
+    test_forward_add_broadcast();
     test_backward();
     test_graph_multi_output();
     std::cout << "All graph tests passed!\n";

@@ -18,6 +18,8 @@ add_library(qnet SHARED
     src/graph.cpp
     src/layer.cpp
     src/optimizer.cpp
+    src/data.cpp
+    src/trainer.cpp
     src/safetensors.cpp
     src/serializer.cpp
     src/thread_pool.cpp
@@ -30,8 +32,14 @@ target_include_directories(qnet PUBLIC
 
 target_link_libraries(qnet PRIVATE
     Eigen3::Eigen
-    OpenBLAS::OpenBLAS
 )
+
+if(TARGET OpenBLAS::OpenBLAS)
+    target_link_libraries(qnet PRIVATE OpenBLAS::OpenBLAS)
+else()
+    target_include_directories(qnet PRIVATE ${OpenBLAS_INCLUDE_DIRS})
+    target_link_libraries(qnet PRIVATE ${OpenBLAS_LIBRARIES})
+endif()
 
 option(BUILD_PYTHON_BINDINGS "Build Python Extensions via pybind11" OFF)
 if(BUILD_PYTHON_BINDINGS)

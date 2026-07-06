@@ -1,10 +1,129 @@
 #include <qnet/optimizer.hpp>
 
 #include <cmath>
+#include <cstdint>
+#include <fstream>
 #include <stdexcept>
 #include <utility>
 
 namespace cosq::qnet {
+
+namespace {
+
+constexpr uint32_t OPTIMIZER_MAGIC = 0x54504F51; // "QOPT" as LE uint32
+constexpr uint32_t OPTIMIZER_VERSION = 1;
+
+void write_u32(std::ofstream& out, uint32_t value) {
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+uint32_t read_u32(std::ifstream& in) {
+    uint32_t value = 0;
+    in.read(reinterpret_cast<char*>(&value), sizeof(value));
+    return value;
+}
+
+void write_u64(std::ofstream& out, uint64_t value) {
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+uint64_t read_u64(std::ifstream& in) {
+    uint64_t value = 0;
+    in.read(reinterpret_cast<char*>(&value), sizeof(value));
+    return value;
+}
+
+void write_float(std::ofstream& out, float value) {
+    out.write(reinterpret_cast<const char*>(&value), sizeof(value));
+}
+
+float read_float(std::ifstream& in) {
+    float value = 0.0f;
+    in.read(reinterpret_cast<char*>(&value), sizeof(value));
+    return value;
+}
+
+void write_bool(std::ofstream& out, bool value) {
+    uint8_t encoded = value ? 1 : 0;
+    out.write(reinterpret_cast<const char*>(&encoded), sizeof(encoded));
+}
+
+bool read_bool(std::ifstream& in) {
+    uint8_t encoded = 0;
+    in.read(reinterpret_cast<char*>(&encoded), sizeof(encoded));
+    return encoded != 0;
+}
+
+void write_string(std::ofstream& out, const char* value) {
+    std::string str(value);
+    write_u32(out, static_cast<uint32_t>(str.size()));
+    out.write(str.data(), static_cast<std::streamsize>(str.size()));
+}
+
+std::string read_string(std::ifstream& in) {
+    uint32_t size = read_u32(in);
+    std::string value(size, '\0');
+    in.read(value.data(), static_cast<std::streamsize>(size));
+    return value;
+}
+
+void write_tensor(std::ofstream& out, const Tensor& tensor) {
+    write_u32(out, static_cast<uint32_t>(tensor.shape().size()));
+    for (size_t dim : tensor.shape()) {
+        write_u64(out, static_cast<uint64_t>(dim));
+    }
+    write_u64(out, static_cast<uint64_t>(tensor.size()));
+    out.write(reinterpret_cast<const char*>(tensor.data()),
+              static_cast<std::streamsize>(tensor.size() * sizeof(float)));
+}
+
+Tensor read_tensor(std::ifstream& in) {
+    uint32_t ndim = read_u32(in);
+    std::vector<size_t> shape(ndim);
+    for (uint32_t i = 0; i < ndim; ++i) {
+        shape[i] = static_cast<size_t>(read_u64(in));
+    }
+    uint64_t size = read_u64(in);
+    std::vector<float> data(static_cast<size_t>(size));
+    in.read(reinterpret_cast<char*>(data.data()),
+            static_cast<std::streamsize>(data.size() * sizeof(float)));
+    return Tensor(shape, data);
+}
+
+void write_optimizer_header(std::ofstream& out,
+                            const Optimizer& optimizer,
+                            size_t parameter_count) {
+    write_u32(out, OPTIMIZER_MAGIC);
+    write_u32(out, OPTIMIZER_VERSION);
+    write_string(out, optimizer.type_name());
+    write_u64(out, static_cast<uint64_t>(parameter_count));
+}
+
+void validate_optimizer_header(std::ifstream& in,
+                               const Optimizer& optimizer,
+                               size_t parameter_count) {
+    uint32_t magic = read_u32(in);
+    if (magic != OPTIMIZER_MAGIC) {
+        throw std::runtime_error("Invalid optimizer state file (bad magic)");
+    }
+
+    uint32_t version = read_u32(in);
+    if (version > OPTIMIZER_VERSION) {
+        throw std::runtime_error("Unsupported optimizer state version");
+    }
+
+    std::string type = read_string(in);
+    if (type != optimizer.type_name()) {
+        throw std::runtime_error("Optimizer type mismatch while loading state");
+    }
+
+    uint64_t saved_parameter_count = read_u64(in);
+    if (saved_parameter_count != parameter_count) {
+        throw std::runtime_error("Optimizer parameter count mismatch while loading state");
+    }
+}
+
+} // namespace
 
 Optimizer::Optimizer(std::vector<std::shared_ptr<Node>> parameters)
     : parameters_(std::move(parameters)) {
@@ -86,6 +205,64 @@ void SGD::step() {
     }
 }
 
+const char* SGD::type_name() const {
+    return "SGD";
+}
+
+void SGD::save_state(const std::string& filepath) const {
+    std::ofstream out(filepath, std::ios::binary);
+    if (!out) {
+        throw std::runtime_error("Cannot open optimizer state file for writing: " + filepath);
+    }
+
+    write_optimizer_header(out, *this, parameters_.size());
+    write_float(out, learning_rate_);
+    write_float(out, momentum_);
+    write_float(out, weight_decay_);
+    write_bool(out, nesterov_);
+
+    for (const auto& parameter : parameters_) {
+        auto it = momentum_buffers_.find(parameter.get());
+        bool has_buffer = it != momentum_buffers_.end();
+        write_bool(out, has_buffer);
+        if (has_buffer) {
+            write_tensor(out, it->second);
+        }
+    }
+}
+
+void SGD::load_state(const std::string& filepath) {
+    std::ifstream in(filepath, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("Cannot open optimizer state file for reading: " + filepath);
+    }
+
+    validate_optimizer_header(in, *this, parameters_.size());
+    learning_rate_ = read_float(in);
+    momentum_ = read_float(in);
+    weight_decay_ = read_float(in);
+    nesterov_ = read_bool(in);
+
+    if (learning_rate_ <= 0.0f || momentum_ < 0.0f || weight_decay_ < 0.0f ||
+        (nesterov_ && momentum_ <= 0.0f)) {
+        throw std::runtime_error("Invalid SGD state in checkpoint");
+    }
+
+    momentum_buffers_.clear();
+    for (const auto& parameter : parameters_) {
+        bool has_buffer = read_bool(in);
+        if (!has_buffer) {
+            continue;
+        }
+
+        Tensor buffer = read_tensor(in);
+        if (buffer.shape() != parameter->output.shape()) {
+            throw std::runtime_error("SGD momentum buffer shape mismatch");
+        }
+        momentum_buffers_.emplace(parameter.get(), std::move(buffer));
+    }
+}
+
 Adam::Adam(std::vector<std::shared_ptr<Node>> parameters,
            float learning_rate,
            float beta1,
@@ -163,6 +340,74 @@ void Adam::step() {
     step_impl(false);
 }
 
+const char* Adam::type_name() const {
+    return "Adam";
+}
+
+void Adam::save_state(const std::string& filepath) const {
+    std::ofstream out(filepath, std::ios::binary);
+    if (!out) {
+        throw std::runtime_error("Cannot open optimizer state file for writing: " + filepath);
+    }
+
+    write_optimizer_header(out, *this, parameters_.size());
+    write_float(out, learning_rate_);
+    write_float(out, beta1_);
+    write_float(out, beta2_);
+    write_float(out, epsilon_);
+    write_float(out, weight_decay_);
+    write_u64(out, static_cast<uint64_t>(step_count_));
+
+    for (const auto& parameter : parameters_) {
+        auto m_it = first_moment_.find(parameter.get());
+        auto v_it = second_moment_.find(parameter.get());
+        bool has_state = m_it != first_moment_.end() && v_it != second_moment_.end();
+        write_bool(out, has_state);
+        if (has_state) {
+            write_tensor(out, m_it->second);
+            write_tensor(out, v_it->second);
+        }
+    }
+}
+
+void Adam::load_state(const std::string& filepath) {
+    std::ifstream in(filepath, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("Cannot open optimizer state file for reading: " + filepath);
+    }
+
+    validate_optimizer_header(in, *this, parameters_.size());
+    learning_rate_ = read_float(in);
+    beta1_ = read_float(in);
+    beta2_ = read_float(in);
+    epsilon_ = read_float(in);
+    weight_decay_ = read_float(in);
+    step_count_ = static_cast<size_t>(read_u64(in));
+
+    if (learning_rate_ <= 0.0f || beta1_ < 0.0f || beta1_ >= 1.0f ||
+        beta2_ < 0.0f || beta2_ >= 1.0f || epsilon_ <= 0.0f || weight_decay_ < 0.0f) {
+        throw std::runtime_error("Invalid Adam state in checkpoint");
+    }
+
+    first_moment_.clear();
+    second_moment_.clear();
+    for (const auto& parameter : parameters_) {
+        bool has_state = read_bool(in);
+        if (!has_state) {
+            continue;
+        }
+
+        Tensor first = read_tensor(in);
+        Tensor second = read_tensor(in);
+        if (first.shape() != parameter->output.shape() ||
+            second.shape() != parameter->output.shape()) {
+            throw std::runtime_error("Adam moment tensor shape mismatch");
+        }
+        first_moment_.emplace(parameter.get(), std::move(first));
+        second_moment_.emplace(parameter.get(), std::move(second));
+    }
+}
+
 AdamW::AdamW(std::vector<std::shared_ptr<Node>> parameters,
              float learning_rate,
              float beta1,
@@ -173,6 +418,10 @@ AdamW::AdamW(std::vector<std::shared_ptr<Node>> parameters,
 
 void AdamW::step() {
     step_impl(true);
+}
+
+const char* AdamW::type_name() const {
+    return "AdamW";
 }
 
 } // namespace cosq::qnet

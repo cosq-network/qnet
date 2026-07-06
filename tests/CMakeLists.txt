@@ -33,3 +33,7 @@ add_test(NAME test_optimizer COMMAND test_optimizer)
 add_executable(test_layer test_layer.cpp)
 target_link_libraries(test_layer PRIVATE qnet)
 add_test(NAME test_layer COMMAND test_layer)
+
+add_executable(test_trainer test_trainer.cpp)
+target_link_libraries(test_trainer PRIVATE qnet)
+add_test(NAME test_trainer COMMAND test_trainer)

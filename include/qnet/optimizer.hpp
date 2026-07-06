@@ -3,6 +3,7 @@
 #include <qnet/graph.hpp>
 
 #include <cstddef>
+#include <string>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -21,6 +22,9 @@ public:
 
     virtual void step() = 0;
     virtual void zero_grad();
+    virtual const char* type_name() const = 0;
+    virtual void save_state(const std::string& filepath) const = 0;
+    virtual void load_state(const std::string& filepath) = 0;
 
     const std::vector<std::shared_ptr<Node>>& parameters() const { return parameters_; }
 
@@ -39,6 +43,9 @@ public:
         bool nesterov = false);
 
     void step() override;
+    const char* type_name() const override;
+    void save_state(const std::string& filepath) const override;
+    void load_state(const std::string& filepath) override;
 
 private:
     float learning_rate_;
@@ -58,6 +65,9 @@ public:
          float weight_decay = 0.0f);
 
     void step() override;
+    const char* type_name() const override;
+    void save_state(const std::string& filepath) const override;
+    void load_state(const std::string& filepath) override;
 
 protected:
     float learning_rate_;
@@ -84,6 +94,7 @@ public:
           float weight_decay = 0.01f);
 
     void step() override;
+    const char* type_name() const override;
 };
 
 } // namespace cosq::qnet

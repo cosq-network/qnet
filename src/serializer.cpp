@@ -14,6 +14,8 @@ namespace cosq::qnet {
 // -- Binary .qnet format constants --
 static const uint32_t QNET_MAGIC = 0x54454E51; // "QNET" as LE uint32
 static const uint32_t QNET_VERSION = 1;
+static const uint32_t QNET_PARAMS_MAGIC = 0x4D415051; // "QPAM" as LE uint32
+static const uint32_t QNET_PARAMS_VERSION = 1;
 
 static void write_u32(std::ofstream& f, uint32_t v) {
     uint32_t le = v;
@@ -260,6 +262,52 @@ void GraphSerializer::import_safetensors(Graph& graph, const std::string& path) 
                 node->output = reader.load_tensor(name);
             }
         }
+    }
+}
+
+void GraphSerializer::save_parameters(const Graph& graph, const std::string& filepath) {
+    auto parameters = graph.parameters();
+    std::ofstream f(filepath, std::ios::binary);
+    if (!f) {
+        throw std::runtime_error("Cannot open parameter file for writing: " + filepath);
+    }
+
+    write_u32(f, QNET_PARAMS_MAGIC);
+    write_u32(f, QNET_PARAMS_VERSION);
+    write_u32(f, static_cast<uint32_t>(parameters.size()));
+    for (const auto& parameter : parameters) {
+        write_tensor(f, parameter->output);
+    }
+}
+
+void GraphSerializer::load_parameters(Graph& graph, const std::string& filepath) {
+    auto parameters = graph.parameters();
+    std::ifstream f(filepath, std::ios::binary);
+    if (!f) {
+        throw std::runtime_error("Cannot open parameter file for reading: " + filepath);
+    }
+
+    uint32_t magic = read_u32(f);
+    if (magic != QNET_PARAMS_MAGIC) {
+        throw std::runtime_error("Invalid qnet parameter file (bad magic)");
+    }
+
+    uint32_t version = read_u32(f);
+    if (version > QNET_PARAMS_VERSION) {
+        throw std::runtime_error("Unsupported qnet parameter version: " + std::to_string(version));
+    }
+
+    uint32_t parameter_count = read_u32(f);
+    if (parameter_count != parameters.size()) {
+        throw std::runtime_error("Parameter count mismatch while loading qnet parameters");
+    }
+
+    for (uint32_t i = 0; i < parameter_count; ++i) {
+        Tensor loaded = read_tensor(f);
+        if (loaded.shape() != parameters[i]->output.shape()) {
+            throw std::runtime_error("Parameter shape mismatch while loading qnet parameters");
+        }
+        parameters[i]->output = std::move(loaded);
     }
 }
 

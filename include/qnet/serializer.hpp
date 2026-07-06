@@ -35,6 +35,10 @@ struct QNET_API GraphSerializer {
     static void export_safetensors(const Graph& graph, const std::string& path);
 
     static void import_safetensors(Graph& graph, const std::string& path);
+
+    static void save_parameters(const Graph& graph, const std::string& filepath);
+
+    static void load_parameters(Graph& graph, const std::string& filepath);
 };
 
 } // namespace cosq::qnet

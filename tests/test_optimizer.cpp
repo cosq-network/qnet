@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 
 using namespace cosq::qnet;
@@ -181,6 +182,38 @@ static void test_adamw_shape_mismatch_throws() {
     std::cout << "  [PASS] test_adamw_shape_mismatch_throws\n";
 }
 
+static void test_adam_state_roundtrip() {
+    auto parameter_a = std::make_shared<Node>(OpType::PARAMETER);
+    parameter_a->output = Tensor({2}, {1.0f, -1.0f});
+
+    Adam optimizer_a({parameter_a}, 0.05f, 0.8f, 0.9f, 1e-8f, 0.01f);
+
+    parameter_a->gradient = Tensor({2}, {0.25f, -0.5f});
+    optimizer_a.step();
+    parameter_a->gradient = Tensor({2}, {0.1f, -0.2f});
+    optimizer_a.step();
+
+    std::filesystem::path path = std::filesystem::temp_directory_path() / "qnet_adam_state.opt";
+    optimizer_a.save_state(path.string());
+
+    auto parameter_b = std::make_shared<Node>(OpType::PARAMETER);
+    parameter_b->output = parameter_a->output.clone();
+    Adam optimizer_b({parameter_b}, 0.01f);
+    optimizer_b.load_state(path.string());
+
+    parameter_a->gradient = Tensor({2}, {0.3f, -0.7f});
+    parameter_b->gradient = Tensor({2}, {0.3f, -0.7f});
+    optimizer_a.step();
+    optimizer_b.step();
+
+    assert(approx(parameter_a->output.data()[0], parameter_b->output.data()[0], 1e-6f));
+    assert(approx(parameter_a->output.data()[1], parameter_b->output.data()[1], 1e-6f));
+
+    std::filesystem::remove(path);
+
+    std::cout << "  [PASS] test_adam_state_roundtrip\n";
+}
+
 int main() {
     std::cout << "Optimizer tests:\n";
     test_graph_parameters();
@@ -193,6 +226,7 @@ int main() {
     test_optimizer_zero_grad();
     test_gradient_shape_mismatch_throws();
     test_adamw_shape_mismatch_throws();
+    test_adam_state_roundtrip();
     std::cout << "All optimizer tests passed!\n";
     return 0;
 }
