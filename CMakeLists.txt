@@ -26,13 +26,9 @@ target_include_directories(qnet PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-target_include_directories(qnet PRIVATE
-    ${OpenBLAS_INCLUDE_DIRS}
-)
-
 target_link_libraries(qnet PRIVATE
     Eigen3::Eigen
-    ${OpenBLAS_LIBRARIES}
+    OpenBLAS::OpenBLAS
 )
 
 option(BUILD_PYTHON_BINDINGS "Build Python Extensions via pybind11" OFF)

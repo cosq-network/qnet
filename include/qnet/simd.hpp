@@ -3,8 +3,15 @@
 #include <cstddef>
 #include <cmath>
 
+// Platform detection for SIMD intrinsics
+// GCC/Clang define __ARM_NEON__, __SSE2__, __AVX__
+// MSVC defines _M_AMD64/_M_X64 (x64 implies SSE2) and __AVX__ only with /arch:AVX
 #if defined(__ARM_NEON__)
 #include <arm_neon.h>
+#elif defined(_MSC_VER) && (defined(_M_AMD64) || defined(_M_X64))
+#define __SSE2__ 1
+#include <emmintrin.h>
+#include <immintrin.h>
 #elif defined(__SSE2__)
 #include <emmintrin.h>
 #include <immintrin.h>

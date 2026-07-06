@@ -1,23 +1,30 @@
-add_executable(test_tensor test_tensor.cpp)
-target_link_libraries(test_tensor PRIVATE qnet)
-add_test(NAME test_tensor COMMAND test_tensor)
+# Set PATH so the test executables can find qnet.dll on Windows
+if(WIN32)
+    set(QNET_DLL_DIR "$<TARGET_FILE_DIR:qnet>")
+    set(TEST_ENV "PATH=${QNET_DLL_DIR}\\;$ENV{PATH}")
+else()
+    set(TEST_ENV "")
+endif()
 
-add_executable(test_graph test_graph.cpp)
-target_link_libraries(test_graph PRIVATE qnet)
-add_test(NAME test_graph COMMAND test_graph)
+function(add_qnet_test NAME SOURCE)
+    add_executable(${NAME} ${SOURCE})
+    target_link_libraries(${NAME} PRIVATE qnet)
+    add_test(NAME ${NAME} COMMAND ${NAME})
+    if(WIN32)
+        set_tests_properties(${NAME} PROPERTIES ENVIRONMENT "${TEST_ENV}")
+        add_custom_command(TARGET ${NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:qnet>"
+                "$<TARGET_FILE_DIR:${NAME}>/"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE_DIR:qnet>/openblas.dll"
+                "$<TARGET_FILE_DIR:${NAME}>/" )
+    endif()
+endfunction()
 
-add_executable(test_safetensors test_safetensors.cpp)
-target_link_libraries(test_safetensors PRIVATE qnet)
-add_test(NAME test_safetensors COMMAND test_safetensors)
-
-add_executable(test_conv test_conv.cpp)
-target_link_libraries(test_conv PRIVATE qnet)
-add_test(NAME test_conv COMMAND test_conv)
-
-add_executable(test_serializer test_serializer.cpp)
-target_link_libraries(test_serializer PRIVATE qnet)
-add_test(NAME test_serializer COMMAND test_serializer)
-
-add_executable(test_backward test_backward.cpp)
-target_link_libraries(test_backward PRIVATE qnet)
-add_test(NAME test_backward COMMAND test_backward)
+add_qnet_test(test_tensor test_tensor.cpp)
+add_qnet_test(test_graph test_graph.cpp)
+add_qnet_test(test_safetensors test_safetensors.cpp)
+add_qnet_test(test_conv test_conv.cpp)
+add_qnet_test(test_serializer test_serializer.cpp)
+add_qnet_test(test_backward test_backward.cpp)

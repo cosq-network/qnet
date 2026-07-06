@@ -2,6 +2,7 @@
 #include <qnet/ops.hpp>
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 using namespace cosq::qnet;

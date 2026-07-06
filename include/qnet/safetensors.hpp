@@ -1,5 +1,6 @@
 #pragma once
 
+#include <qnet/export.hpp>
 #include <qnet/tensor.hpp>
 
 #include <string>
@@ -8,14 +9,14 @@
 
 namespace cosq::qnet {
 
-struct SafeTensorEntry {
+struct QNET_API SafeTensorEntry {
     std::string dtype;
     std::vector<size_t> shape;
     size_t offset_start;
     size_t offset_end;
 };
 
-class SafeTensorsReader {
+class QNET_API SafeTensorsReader {
 public:
     explicit SafeTensorsReader(const std::string& filepath);
 
