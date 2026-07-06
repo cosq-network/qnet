@@ -21,3 +21,15 @@ add_test(NAME test_serializer COMMAND test_serializer)
 add_executable(test_backward test_backward.cpp)
 target_link_libraries(test_backward PRIVATE qnet)
 add_test(NAME test_backward COMMAND test_backward)
+
+add_executable(test_loss test_loss.cpp)
+target_link_libraries(test_loss PRIVATE qnet)
+add_test(NAME test_loss COMMAND test_loss)
+
+add_executable(test_optimizer test_optimizer.cpp)
+target_link_libraries(test_optimizer PRIVATE qnet)
+add_test(NAME test_optimizer COMMAND test_optimizer)
+
+add_executable(test_layer test_layer.cpp)
+target_link_libraries(test_layer PRIVATE qnet)
+add_test(NAME test_layer COMMAND test_layer)

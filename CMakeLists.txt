@@ -16,6 +16,8 @@ add_library(qnet SHARED
     src/blas.cpp
     src/ops.cpp
     src/graph.cpp
+    src/layer.cpp
+    src/optimizer.cpp
     src/safetensors.cpp
     src/serializer.cpp
     src/thread_pool.cpp

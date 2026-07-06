@@ -131,49 +131,54 @@
 
 ---
 
-## 🔧 Phase 9 — Loss Functions
+## ✅ Phase 9 — Loss Functions
 
-**Priority: HIGH**
+**Status:** Complete
 
-- [ ] `Ops::cross_entropy_loss(logits, targets)` — softmax + NLL combined (stable)
-- [ ] `Ops::cross_entropy_backward(logits, targets)` — `(softmax - one_hot) / N`
-- [ ] `Ops::mse_loss(pred, target)` — mean squared error
-- [ ] `Ops::mse_backward(pred, target)` — `2 * (pred - target) / N`
-- [ ] `Ops::binary_cross_entropy(pred, target)` — BCE with logits
-- [ ] `Ops::bce_backward(pred, target)` — gradient
-- [ ] Unit tests with gradient checks
+- [x] `Ops::cross_entropy_loss(logits, targets)` — softmax + NLL combined (stable via log-sum-exp)
+- [x] `Ops::cross_entropy_backward(logits, targets)` — `(softmax - one_hot) / N`
+- [x] `Ops::mse_loss(pred, target)` — mean squared error
+- [x] `Ops::mse_backward(pred, target)` — `2 * (pred - target) / N`
+- [x] `Ops::binary_cross_entropy(pred, target)` — BCE with logits (numerically stable)
+- [x] `Ops::bce_backward(pred, target)` — gradient
+- [x] Unit tests with numerical gradient checks, error paths (out-of-range, shape mismatch, non-unit grad_output)
+- [x] Graph-level loss backward (`cross_entropy_loss`, `mse_loss`, `binary_cross_entropy`)
+
+**Files:** `include/qnet/ops.hpp`, `src/ops.cpp`, `tests/test_loss.cpp`
 
 ---
 
-## 🔧 Phase 10 — Optimizers
+## ✅ Phase 10 — Optimizers
 
-**Priority: HIGH**
+**Status:** Mostly Complete
 
-- [ ] `Optimizer` base class — `step()`, `zero_grad()`, parameter list
-- [ ] `SGD` — weight decay, momentum, Nesterov
-- [ ] `Adam` — bias-corrected first/second moment estimates
-- [ ] `AdamW` — decoupled weight decay
+- [x] `Optimizer` base class — `step()`, `zero_grad()`, parameter list, validation
+- [x] `SGD` — weight decay, momentum, Nesterov
+- [x] `Adam` — bias-corrected first/second moment estimates (coupled weight decay)
+- [x] `AdamW` — decoupled weight decay
+- [x] Unit tests: multi-step, zero-gradient, shape mismatch errors, weight decay
 - [ ] Parameter group support (per-layer learning rates)
 - [ ] Gradient clipping (norm & value)
 - [ ] Learning rate schedulers (step, cosine, linear warmup)
-- [ ] Unit tests: verify weight updates match reference values
+
+**Files:** `include/qnet/optimizer.hpp`, `src/optimizer.cpp`, `tests/test_optimizer.cpp`
 
 ---
 
-## 🔧 Phase 11 — Layer Abstractions
+## ✅ Phase 11 — Layer Abstractions
 
-**Priority: HIGH**
+**Status:** Complete
 
-- [ ] `Layer` base class — `forward()`, `parameters()`, `name`
-- [ ] `Linear(in_features, out_features, bias)` — weight `[out, in]`, bias `[out]`
-- [ ] `Conv2d(in_c, out_c, kernel, stride, pad)` — wraps im2col conv
-- [ ] `Embedding(vocab_size, dim)` — lookup table wrapper
-- [ ] `LayerNorm(normalized_shape, eps, elementwise_affine)`
-- [ ] `BatchNorm1d` / `BatchNorm2d` — running mean/var, affine
-- [ ] `Dropout(rate)` — training-time masking + scaling
-- [ ] `Sequential` — ordered container, forward chains layers
-- [ ] `Module` / `Model` — parameter registration, train/eval mode
-- [ ] Layer unit tests: output shape, parameter count, forward correctness
+- [x] `Layer` base class — `forward()`, `parameters()`, `name`, `train()`/`eval()`
+- [x] `Linear(in_features, out_features, bias)` — weight `[out, in]`, bias `[out]`
+- [x] `Conv2d(in_c, out_c, kernel, stride, pad)` — wraps im2col conv
+- [x] `Embedding(vocab_size, dim)` — lookup table wrapper
+- [x] `LayerNorm(normalized_shape, eps, elementwise_affine)` — fused op with backward
+- [x] `Dropout(rate)` — training-time masking + scaling (fused op with mask storage)
+- [x] `Sequential` — ordered container, forward chains layers
+- [x] `Model` — parameter registration, train/eval mode
+- [x] Layer unit tests: forward, backward, parameter count, train/eval mode
+- [ ] ~~`BatchNorm1d` / `BatchNorm2d`~~ — deferred (requires running statistics)
 
 ---
 
@@ -272,12 +277,12 @@
 ## Summary
 
 | Phase | Area | Priority | Status |
-|---|---|---|---|
+|---|---|---|---|---|
 | 1–7 | Core, portability, build, CI | — | ✅ Done |
 | 8 | Complete backward pass | HIGH | ✅ Done |
-| 9 | Loss functions | HIGH | 🔧 Not started |
-| 10 | Optimizers | HIGH | 🔧 Not started |
-| 11 | Layer abstractions | HIGH | 🔧 Not started |
+| 9 | Loss functions | HIGH | ✅ Done |
+| 10 | Optimizers | HIGH | ✅ Mostly Done |
+| 11 | Layer abstractions | HIGH | ✅ Done |
 | 12 | Transformer blocks | MEDIUM | 🔧 Not started |
 | 13 | Training loop | MEDIUM | 🔧 Not started |
 | 14 | Quantization | LOW | 🔧 Not started |
@@ -286,4 +291,4 @@
 | 17 | ONNX | LOW | 🔧 Not started |
 | 18 | Performance hardening | LOW | 🔧 Not started |
 
-**Next concrete step:** Implement loss functions (cross-entropy, MSE, BCE) and their backward passes — then optimizers (SGD, Adam, AdamW) to enable the first end-to-end training loop.
+**Next concrete step:** Build Transformer blocks (Multi-Head Attention, RoPE, GELU, FeedForward) to enable language model implementations.

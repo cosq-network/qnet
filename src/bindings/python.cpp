@@ -1,6 +1,7 @@
 #include <qnet/blas.hpp>
 #include <qnet/graph.hpp>
 #include <qnet/ops.hpp>
+#include <qnet/optimizer.hpp>
 #include <qnet/safetensors.hpp>
 #include <qnet/tensor.hpp>
 
@@ -49,9 +50,15 @@ PYBIND11_MODULE(pyqnet, m) {
         .value("PARAMETER", qnet::OpType::PARAMETER)
         .value("MATMUL", qnet::OpType::MATMUL)
         .value("ADD", qnet::OpType::ADD)
+        .value("MUL", qnet::OpType::MUL)
         .value("RELU", qnet::OpType::RELU)
         .value("SIGMOID", qnet::OpType::SIGMOID)
         .value("SOFTMAX", qnet::OpType::SOFTMAX)
+        .value("CONV2D", qnet::OpType::CONV2D)
+        .value("EMBEDDING", qnet::OpType::EMBEDDING)
+        .value("CROSS_ENTROPY_LOSS", qnet::OpType::CROSS_ENTROPY_LOSS)
+        .value("MSE_LOSS", qnet::OpType::MSE_LOSS)
+        .value("BINARY_CROSS_ENTROPY_LOSS", qnet::OpType::BINARY_CROSS_ENTROPY_LOSS)
         .export_values();
 
     py::class_<qnet::Graph>(m, "Graph")
@@ -63,9 +70,46 @@ PYBIND11_MODULE(pyqnet, m) {
         .def("relu", &qnet::Graph::relu)
         .def("sigmoid", &qnet::Graph::sigmoid)
         .def("softmax", &qnet::Graph::softmax)
+        .def("cross_entropy_loss", &qnet::Graph::cross_entropy_loss)
+        .def("mse_loss", &qnet::Graph::mse_loss)
+        .def("binary_cross_entropy", &qnet::Graph::binary_cross_entropy)
         .def("forward", &qnet::Graph::forward)
         .def("backward", &qnet::Graph::backward)
-        .def("zero_grad", &qnet::Graph::zero_grad);
+        .def("zero_grad", &qnet::Graph::zero_grad)
+        .def("parameters", &qnet::Graph::parameters);
+
+    py::class_<qnet::Optimizer, std::shared_ptr<qnet::Optimizer>>(m, "Optimizer")
+        .def("zero_grad", &qnet::Optimizer::zero_grad)
+        .def("parameters", &qnet::Optimizer::parameters);
+
+    py::class_<qnet::SGD, qnet::Optimizer, std::shared_ptr<qnet::SGD>>(m, "SGD")
+        .def(py::init<std::vector<std::shared_ptr<qnet::Node>>, float, float, float, bool>(),
+             py::arg("parameters"),
+             py::arg("learning_rate"),
+             py::arg("momentum") = 0.0f,
+             py::arg("weight_decay") = 0.0f,
+             py::arg("nesterov") = false)
+        .def("step", &qnet::SGD::step);
+
+    py::class_<qnet::Adam, qnet::Optimizer, std::shared_ptr<qnet::Adam>>(m, "Adam")
+        .def(py::init<std::vector<std::shared_ptr<qnet::Node>>, float, float, float, float, float>(),
+             py::arg("parameters"),
+             py::arg("learning_rate") = 1e-3f,
+             py::arg("beta1") = 0.9f,
+             py::arg("beta2") = 0.999f,
+             py::arg("epsilon") = 1e-8f,
+             py::arg("weight_decay") = 0.0f)
+        .def("step", &qnet::Adam::step);
+
+    py::class_<qnet::AdamW, qnet::Adam, std::shared_ptr<qnet::AdamW>>(m, "AdamW")
+        .def(py::init<std::vector<std::shared_ptr<qnet::Node>>, float, float, float, float, float>(),
+             py::arg("parameters"),
+             py::arg("learning_rate") = 1e-3f,
+             py::arg("beta1") = 0.9f,
+             py::arg("beta2") = 0.999f,
+             py::arg("epsilon") = 1e-8f,
+             py::arg("weight_decay") = 0.01f)
+        .def("step", &qnet::AdamW::step);
 
     py::class_<qnet::SafeTensorsReader>(m, "SafeTensorsReader")
         .def(py::init<const std::string&>())

@@ -35,6 +35,15 @@ public:
 
     std::shared_ptr<Node> softmax(const std::shared_ptr<Node>& x);
 
+    std::shared_ptr<Node> cross_entropy_loss(const std::shared_ptr<Node>& logits,
+                                             const std::shared_ptr<Node>& targets);
+
+    std::shared_ptr<Node> mse_loss(const std::shared_ptr<Node>& pred,
+                                   const std::shared_ptr<Node>& target);
+
+    std::shared_ptr<Node> binary_cross_entropy(const std::shared_ptr<Node>& pred,
+                                               const std::shared_ptr<Node>& target);
+
     std::shared_ptr<Node> mul(const std::shared_ptr<Node>& a,
                               const std::shared_ptr<Node>& b);
 
@@ -46,6 +55,13 @@ public:
     std::shared_ptr<Node> embedding(const std::shared_ptr<Node>& weight,
                                    const std::shared_ptr<Node>& indices);
 
+    std::shared_ptr<Node> dropout(const std::shared_ptr<Node>& x, float rate);
+
+    std::shared_ptr<Node> layer_norm(const std::shared_ptr<Node>& x,
+                                     const std::shared_ptr<Node>& gamma = nullptr,
+                                     const std::shared_ptr<Node>& beta = nullptr,
+                                     float eps = 1e-5f);
+
     void forward(const std::shared_ptr<Node>& output_node);
 
     void backward(const std::shared_ptr<Node>& output_node);
@@ -53,6 +69,8 @@ public:
     void zero_grad();
 
     const std::vector<std::shared_ptr<Node>>& nodes() const { return nodes_; }
+
+    std::vector<std::shared_ptr<Node>> parameters() const;
 
     void set_num_threads(size_t n);
 

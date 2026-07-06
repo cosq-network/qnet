@@ -2,6 +2,7 @@
 #include <qnet/ops.hpp>
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 using namespace cosq::qnet;
@@ -34,6 +35,78 @@ static void test_forward() {
     std::cout << "  [PASS] test_forward\n";
 }
 
+static void test_forward_activations() {
+    Graph graph;
+    auto x = graph.variable(Tensor({1, 4}, {-2.0f, -1.0f, 0.0f, 1.0f}));
+
+    auto r = graph.relu(x);
+    graph.forward(r);
+    assert(approx(r->output.data()[0], 0.0f));
+    assert(approx(r->output.data()[1], 0.0f));
+    assert(approx(r->output.data()[2], 0.0f));
+    assert(approx(r->output.data()[3], 1.0f));
+
+    auto s = graph.sigmoid(x);
+    graph.forward(s);
+    for (size_t i = 0; i < 4; ++i) {
+        float expected = 1.0f / (1.0f + std::exp(-x->output.data()[i]));
+        assert(approx(s->output.data()[i], expected));
+    }
+
+    Tensor logits_data({1, 3}, {1.0f, 2.0f, 3.0f});
+    auto logits = graph.variable(logits_data);
+    auto sm = graph.softmax(logits);
+    graph.forward(sm);
+    float sum = 0.0f;
+    for (size_t i = 0; i < 3; ++i) sum += sm->output.data()[i];
+    assert(approx(sum, 1.0f));
+
+    std::cout << "  [PASS] test_forward_activations\n";
+}
+
+static void test_forward_add_mul() {
+    Graph graph;
+    auto a = graph.variable(Tensor({1, 3}, {1, 2, 3}));
+    auto b = graph.variable(Tensor({1, 3}, {4, 5, 6}));
+
+    auto sum_node = graph.add(a, b);
+    graph.forward(sum_node);
+    assert(approx(sum_node->output.data()[0], 5.0f));
+    assert(approx(sum_node->output.data()[1], 7.0f));
+    assert(approx(sum_node->output.data()[2], 9.0f));
+
+    auto mul_node = graph.mul(a, b);
+    graph.forward(mul_node);
+    assert(approx(mul_node->output.data()[0], 4.0f));
+    assert(approx(mul_node->output.data()[1], 10.0f));
+    assert(approx(mul_node->output.data()[2], 18.0f));
+
+    std::cout << "  [PASS] test_forward_add_mul\n";
+}
+
+static void test_graph_multi_output() {
+    Graph graph;
+    auto x = graph.variable(Tensor({1, 2}, {1, 2}));
+    auto w1 = graph.parameter(Tensor({2, 1}, {0.5f, 1.0f}));
+    auto w2 = graph.parameter(Tensor({2, 1}, {2.0f, 3.0f}));
+
+    auto y1 = graph.matmul(x, w1);
+    auto y2 = graph.matmul(x, w2);
+
+    graph.forward(y1);
+    graph.forward(y2);
+    graph.backward(y1);
+
+    assert(x->gradient.size() > 0);
+    float grad_x0 = x->gradient.data()[0];
+
+    // Accumulate gradient from y2
+    graph.backward(y2);
+    assert(approx(x->gradient.data()[0], grad_x0 + 2.0f, 1e-5f));
+
+    std::cout << "  [PASS] test_graph_multi_output\n";
+}
+
 static void test_backward() {
     Graph graph;
 
@@ -63,7 +136,10 @@ static void test_backward() {
 int main() {
     std::cout << "Graph tests:\n";
     test_forward();
+    test_forward_activations();
+    test_forward_add_mul();
     test_backward();
+    test_graph_multi_output();
     std::cout << "All graph tests passed!\n";
     return 0;
 }

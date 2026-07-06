@@ -20,6 +20,17 @@ void Graph::add_node(std::shared_ptr<Node> node) {
     nodes_.push_back(std::move(node));
 }
 
+std::vector<std::shared_ptr<Node>> Graph::parameters() const {
+    std::vector<std::shared_ptr<Node>> result;
+    result.reserve(nodes_.size());
+    for (const auto& node : nodes_) {
+        if (node && node->op_type == OpType::PARAMETER) {
+            result.push_back(node);
+        }
+    }
+    return result;
+}
+
 std::shared_ptr<Node> Graph::create_node(OpType type,
                                           const std::vector<std::shared_ptr<Node>>& inputs) {
     auto node = std::make_shared<Node>(type);
@@ -62,6 +73,21 @@ std::shared_ptr<Node> Graph::softmax(const std::shared_ptr<Node>& x) {
     return create_node(OpType::SOFTMAX, {x});
 }
 
+std::shared_ptr<Node> Graph::cross_entropy_loss(const std::shared_ptr<Node>& logits,
+                                                const std::shared_ptr<Node>& targets) {
+    return create_node(OpType::CROSS_ENTROPY_LOSS, {logits, targets});
+}
+
+std::shared_ptr<Node> Graph::mse_loss(const std::shared_ptr<Node>& pred,
+                                      const std::shared_ptr<Node>& target) {
+    return create_node(OpType::MSE_LOSS, {pred, target});
+}
+
+std::shared_ptr<Node> Graph::binary_cross_entropy(const std::shared_ptr<Node>& pred,
+                                                  const std::shared_ptr<Node>& target) {
+    return create_node(OpType::BINARY_CROSS_ENTROPY_LOSS, {pred, target});
+}
+
 std::shared_ptr<Node> Graph::mul(const std::shared_ptr<Node>& a,
                                   const std::shared_ptr<Node>& b) {
     return create_node(OpType::MUL, {a, b});
@@ -82,6 +108,28 @@ std::shared_ptr<Node> Graph::conv2d(const std::shared_ptr<Node>& input,
 std::shared_ptr<Node> Graph::embedding(const std::shared_ptr<Node>& weight,
                                        const std::shared_ptr<Node>& indices) {
     return create_node(OpType::EMBEDDING, {weight, indices});
+}
+
+std::shared_ptr<Node> Graph::dropout(const std::shared_ptr<Node>& x, float rate) {
+    auto node = create_node(OpType::DROPOUT, {x});
+    node->dropout_rate = rate;
+    return node;
+}
+
+std::shared_ptr<Node> Graph::layer_norm(const std::shared_ptr<Node>& x,
+                                        const std::shared_ptr<Node>& gamma,
+                                        const std::shared_ptr<Node>& beta,
+                                        float eps) {
+    std::vector<std::shared_ptr<Node>> inputs = {x};
+    if (gamma) inputs.push_back(gamma);
+    if (beta) inputs.push_back(beta);
+
+    auto node = create_node(OpType::LAYER_NORM, inputs);
+    node->layer_norm_eps = eps;
+    if (x->output.shape().size() > 0) {
+        node->layer_norm_size = x->output.shape().back();
+    }
+    return node;
 }
 
 void Graph::execute_node(Node* node) {
@@ -122,6 +170,27 @@ void Graph::execute_node(Node* node) {
         break;
     }
 
+    case OpType::CROSS_ENTROPY_LOSS: {
+        auto& logits = node->inputs[0]->output;
+        auto& targets = node->inputs[1]->output;
+        node->output = Ops::cross_entropy_loss(logits, targets);
+        break;
+    }
+
+    case OpType::MSE_LOSS: {
+        auto& pred = node->inputs[0]->output;
+        auto& target = node->inputs[1]->output;
+        node->output = Ops::mse_loss(pred, target);
+        break;
+    }
+
+    case OpType::BINARY_CROSS_ENTROPY_LOSS: {
+        auto& pred = node->inputs[0]->output;
+        auto& target = node->inputs[1]->output;
+        node->output = Ops::binary_cross_entropy(pred, target);
+        break;
+    }
+
     case OpType::MUL: {
         auto& a = node->inputs[0]->output;
         auto& b = node->inputs[1]->output;
@@ -142,6 +211,22 @@ void Graph::execute_node(Node* node) {
         auto& weight = node->inputs[0]->output;
         auto& indices = node->inputs[1]->output;
         node->output = Ops::embedding(weight, indices);
+        break;
+    }
+
+    case OpType::DROPOUT: {
+        auto& x = node->inputs[0]->output;
+        Tensor mask;
+        node->output = Ops::dropout_forward(x, node->dropout_rate, mask);
+        node->dropout_mask = std::move(mask);
+        break;
+    }
+
+    case OpType::LAYER_NORM: {
+        auto& x = node->inputs[0]->output;
+        const Tensor* gamma = node->inputs.size() > 1 ? &node->inputs[1]->output : nullptr;
+        const Tensor* beta = node->inputs.size() > 2 ? &node->inputs[2]->output : nullptr;
+        node->output = Ops::layer_norm(x, gamma, beta, node->layer_norm_eps);
         break;
     }
 
@@ -298,6 +383,39 @@ void Graph::backward(const std::shared_ptr<Node>& output_node) {
             break;
         }
 
+        case OpType::CROSS_ENTROPY_LOSS: {
+            auto& logits = node->inputs[0];
+            Tensor grad_logits(logits->output.shape());
+            Ops::cross_entropy_backward(logits->output, node->inputs[1]->output,
+                                        node->gradient, grad_logits);
+            accumulate_grad(logits, grad_logits);
+            break;
+        }
+
+        case OpType::MSE_LOSS: {
+            auto& pred = node->inputs[0];
+            auto& target = node->inputs[1];
+            Tensor grad_pred(pred->output.shape());
+            Tensor grad_target(target->output.shape());
+            Ops::mse_backward(pred->output, target->output,
+                              node->gradient, grad_pred, grad_target);
+            accumulate_grad(pred, grad_pred);
+            accumulate_grad(target, grad_target);
+            break;
+        }
+
+        case OpType::BINARY_CROSS_ENTROPY_LOSS: {
+            auto& pred = node->inputs[0];
+            auto& target = node->inputs[1];
+            Tensor grad_pred(pred->output.shape());
+            Tensor grad_target(target->output.shape());
+            Ops::bce_backward(pred->output, target->output,
+                              node->gradient, grad_pred, grad_target);
+            accumulate_grad(pred, grad_pred);
+            accumulate_grad(target, grad_target);
+            break;
+        }
+
         case OpType::CONV2D: {
             auto& input = node->inputs[0];
             auto& kernel = node->inputs[1];
@@ -318,6 +436,36 @@ void Graph::backward(const std::shared_ptr<Node>& output_node) {
             Tensor grad_weight(weight->output.shape());
             Ops::embedding_backward(node->gradient, indices->output, grad_weight);
             accumulate_grad(weight, grad_weight);
+            break;
+        }
+
+        case OpType::DROPOUT: {
+            auto& x = node->inputs[0];
+            Tensor grad_x(x->output.shape());
+            Ops::dropout_backward(node->gradient, node->dropout_mask, grad_x);
+            accumulate_grad(x, grad_x);
+            break;
+        }
+
+        case OpType::LAYER_NORM: {
+            auto& x = node->inputs[0];
+            Tensor grad_x(x->output.shape());
+            const Tensor* gamma = node->inputs.size() > 1 ? &node->inputs[1]->output : nullptr;
+            const Tensor* beta = node->inputs.size() > 2 ? &node->inputs[2]->output : nullptr;
+            Tensor* grad_gamma = node->inputs.size() > 1 ? &node->inputs[1]->gradient : nullptr;
+            Tensor* grad_beta = node->inputs.size() > 2 ? &node->inputs[2]->gradient : nullptr;
+
+            Tensor gg, gb;
+            if (grad_gamma) { gg = Tensor(gamma->shape()); grad_gamma = &gg; }
+            if (grad_beta) { gb = Tensor(beta->shape()); grad_beta = &gb; }
+
+            Ops::layer_norm_backward(node->gradient, x->output,
+                                     gamma, beta, node->layer_norm_eps,
+                                     grad_x, grad_gamma, grad_beta);
+
+            accumulate_grad(x, grad_x);
+            if (node->inputs.size() > 1) accumulate_grad(node->inputs[1], gg);
+            if (node->inputs.size() > 2) accumulate_grad(node->inputs[2], gb);
             break;
         }
 

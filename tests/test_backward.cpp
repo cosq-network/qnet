@@ -132,6 +132,34 @@ static void test_sigmoid_backward() {
     std::cout << "  [PASS] test_sigmoid_backward\n";
 }
 
+static void test_matmul_backward() {
+    Tensor a({2, 3}, {1, 2, 3, 4, 5, 6});
+    Tensor b({3, 2}, {7, 8, 9, 10, 11, 12});
+    Tensor dy({2, 2}, {1, 1, 1, 1});
+    Tensor grad_a(a.shape()), grad_b(b.shape());
+
+    Ops::matmul_backward(a, b, dy, grad_a, grad_b);
+
+    // grad_a = dy @ b^T
+    assert(approx(grad_a.at({0, 0}), 7.0f + 8.0f));
+    assert(approx(grad_a.at({0, 1}), 9.0f + 10.0f));
+    assert(approx(grad_a.at({1, 2}), 11.0f + 12.0f));
+
+    // grad_b = a^T @ dy
+    assert(approx(grad_b.at({0, 0}), 1.0f + 4.0f));
+    assert(approx(grad_b.at({1, 1}), 2.0f + 5.0f));
+    assert(approx(grad_b.at({2, 0}), 3.0f + 6.0f));
+
+    static const auto forward_fn = [&]() { return Ops::matmul(a, b); };
+    float ng_a = numerical_grad(a, 0, forward_fn);
+    assert(approx(ng_a, grad_a.data()[0], 1e-3f));
+
+    float ng_b = numerical_grad(b, 0, forward_fn);
+    assert(approx(ng_b, grad_b.data()[0], 1e-3f));
+
+    std::cout << "  [PASS] test_matmul_backward\n";
+}
+
 static void test_softmax_backward() {
     Tensor x({1, 3}, {1.0f, 2.0f, 3.0f});
     auto out = Ops::softmax(x);
@@ -145,6 +173,10 @@ static void test_softmax_backward() {
     assert(approx(grad_x.data()[0], s0 * (1.0f - sum_s_dy)));
     assert(approx(grad_x.data()[1], s1 * (0.0f - sum_s_dy)));
     assert(approx(grad_x.data()[2], s2 * (0.0f - sum_s_dy)));
+
+    static const auto forward_fn = [&]() { return Ops::softmax(x); };
+    float ng = numerical_grad(x, 1, forward_fn);
+    assert(approx(ng, grad_x.data()[1], 1e-3f));
 
     std::cout << "  [PASS] test_softmax_backward\n";
 }
@@ -185,7 +217,92 @@ static void test_conv2d_backward() {
     assert(approx(grad_kernel.data()[2], 90.0f, 1e-2f));
     assert(approx(grad_kernel.data()[3], 99.0f, 1e-2f));
 
+    // grad_input verification via im2col backward
+    assert(approx(grad_input.at({0, 0, 0, 0}), -1.0f, 1e-2f));
+    assert(approx(grad_input.at({0, 0, 1, 1}), 0.0f, 1e-2f));
+    assert(approx(grad_input.at({0, 0, 3, 3}), 1.0f, 1e-2f));
+
+    // Numerical gradient check on input
+    static const auto fwd_input = [&]() { return Ops::conv2d(input, kernel, stride, stride, pad, pad); };
+    float ng_in = numerical_grad(input, 5, fwd_input);
+    assert(approx(ng_in, grad_input.data()[5], 0.5f));
+
+    // Numerical gradient check on kernel
+    static const auto fwd_kernel = [&]() { return Ops::conv2d(input, kernel, stride, stride, pad, pad); };
+    float ng_ker = numerical_grad(kernel, 0, fwd_kernel);
+    assert(approx(ng_ker, grad_kernel.data()[0], 0.5f));
+
     std::cout << "  [PASS] test_conv2d_backward\n";
+}
+
+static void test_embedding_backward_numerical() {
+    Tensor weight({3, 2}, {1, 2, 3, 4, 5, 6});
+    Tensor indices({3}, {0, 1, 2});
+    Tensor dy({3, 2}, {1, 0, 0, 1, 1, 1});
+    Tensor grad_weight(weight.shape());
+
+    Ops::embedding_backward(dy, indices, grad_weight);
+
+    assert(approx(grad_weight.at({0, 0}), 1.0f));
+    assert(approx(grad_weight.at({0, 1}), 0.0f));
+    assert(approx(grad_weight.at({1, 0}), 0.0f));
+    assert(approx(grad_weight.at({1, 1}), 1.0f));
+    assert(approx(grad_weight.at({2, 0}), 1.0f));
+    assert(approx(grad_weight.at({2, 1}), 1.0f));
+
+    static const auto forward_fn = [&]() { return Ops::embedding(weight, indices); };
+    float ng = numerical_grad(weight, 0, forward_fn);
+    assert(approx(ng, grad_weight.data()[0], 1e-3f));
+
+    std::cout << "  [PASS] test_embedding_backward_numerical\n";
+}
+
+static void test_conv2d_stride_pad_backward() {
+    size_t N = 1, C = 1, H = 5, W = 5;
+    size_t K = 1, KH = 3, KW = 3;
+    size_t stride = 2, pad = 1;
+
+    std::vector<float> inp_data = {
+        1,  2,  3,  4,  5,
+        6,  7,  8,  9,  10,
+        11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20,
+        21, 22, 23, 24, 25
+    };
+    std::vector<float> ker_data = {
+        1, 0, -1,
+        1, 0, -1,
+        1, 0, -1
+    };
+
+    Tensor input({N, C, H, W}, inp_data);
+    Tensor kernel({K, C, KH, KW}, ker_data);
+
+    auto out = Ops::conv2d(input, kernel, stride, stride, pad, pad);
+
+    size_t OH = (H + 2 * pad - KH) / stride + 1;
+    size_t OW = (W + 2 * pad - KW) / stride + 1;
+    assert(OH == 3 && OW == 3);
+
+    Tensor dy({N, K, OH, OW}, {1.0f, 1.0f, 1.0f,
+                               1.0f, 1.0f, 1.0f,
+                               1.0f, 1.0f, 1.0f});
+    Tensor grad_input(input.shape());
+    Tensor grad_kernel(kernel.shape());
+
+    Ops::conv2d_backward(dy, input, kernel,
+                         stride, stride, pad, pad,
+                         grad_input, grad_kernel);
+
+    assert(approx(grad_kernel.data()[0], 68.0f, 1e-2f));
+    assert(approx(grad_kernel.data()[4], 80.0f, 1e-2f));
+    assert(approx(grad_kernel.data()[8], 68.0f, 1e-2f));
+
+    static const auto fwd = [&]() { return Ops::conv2d(input, kernel, stride, stride, pad, pad); };
+    float ng_in = numerical_grad(input, 6, fwd);
+    assert(approx(ng_in, grad_input.data()[6], 0.5f));
+
+    std::cout << "  [PASS] test_conv2d_stride_pad_backward\n";
 }
 
 static void test_embedding_backward() {
@@ -323,6 +440,30 @@ static void test_graph_sigmoid_backward() {
     std::cout << "  [PASS] test_graph_sigmoid_backward\n";
 }
 
+static void test_gradient_accumulation() {
+    Graph graph;
+    auto x = graph.variable(Tensor({1, 3}, {1, 2, 3}));
+    auto w = graph.parameter(Tensor({3, 1}, {0.5f, 1.0f, 1.5f}));
+    auto y = graph.matmul(x, w);
+
+    graph.forward(y);
+    graph.backward(y);
+    float grad_w0_first = w->gradient.data()[0];
+
+    // Second backward should accumulate
+    graph.forward(y);
+    graph.backward(y);
+    assert(approx(w->gradient.data()[0], 2.0f * grad_w0_first));
+
+    // zero_grad then backward should reset
+    graph.zero_grad();
+    graph.forward(y);
+    graph.backward(y);
+    assert(approx(w->gradient.data()[0], grad_w0_first));
+
+    std::cout << "  [PASS] test_gradient_accumulation\n";
+}
+
 int main() {
     std::cout << "Backward op tests:\n";
     test_relu_backward();
@@ -330,8 +471,11 @@ int main() {
     test_mul_backward();
     test_sigmoid_backward();
     test_softmax_backward();
+    test_matmul_backward();
     test_conv2d_backward();
+    test_conv2d_stride_pad_backward();
     test_embedding_backward();
+    test_embedding_backward_numerical();
     std::cout << "Graph backward tests:\n";
     test_graph_backward_chain();
     test_graph_zero_grad();
@@ -339,6 +483,7 @@ int main() {
     test_graph_add_backward();
     test_graph_mul_backward();
     test_graph_sigmoid_backward();
+    test_gradient_accumulation();
     std::cout << "All backward tests passed!\n";
     return 0;
 }

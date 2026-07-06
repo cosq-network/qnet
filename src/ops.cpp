@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <random>
 #include <stdexcept>
 #include <vector>
 
@@ -125,6 +126,95 @@ Tensor Ops::softmax(const Tensor& x) {
         }
     }
     return result;
+}
+
+static size_t checked_class_index(float raw_index, size_t num_classes) {
+    if (!std::isfinite(raw_index)) {
+        throw std::invalid_argument("target index must be finite");
+    }
+
+    float rounded = std::round(raw_index);
+    if (std::fabs(raw_index - rounded) > 1e-6f) {
+        throw std::invalid_argument("target index must be an integer value");
+    }
+
+    if (rounded < 0.0f || rounded >= static_cast<float>(num_classes)) {
+        throw std::out_of_range("target index out of bounds");
+    }
+
+    return static_cast<size_t>(rounded);
+}
+
+Tensor Ops::cross_entropy_loss(const Tensor& logits, const Tensor& targets) {
+    if (logits.ndim() != 2) {
+        throw std::invalid_argument("cross_entropy_loss requires 2D logits");
+    }
+    if (targets.ndim() != 1) {
+        throw std::invalid_argument("cross_entropy_loss requires 1D targets");
+    }
+    if (logits.shape()[0] != targets.shape()[0]) {
+        throw std::invalid_argument("cross_entropy_loss batch size mismatch");
+    }
+
+    size_t batch = logits.shape()[0];
+    size_t classes = logits.shape()[1];
+    if (batch == 0 || classes == 0) {
+        throw std::invalid_argument("cross_entropy_loss requires non-empty logits");
+    }
+    float loss = 0.0f;
+
+    for (size_t b = 0; b < batch; ++b) {
+        float max_logit = logits.at({b, 0});
+        for (size_t c = 1; c < classes; ++c) {
+            max_logit = std::max(max_logit, logits.at({b, c}));
+        }
+
+        float exp_sum = 0.0f;
+        for (size_t c = 0; c < classes; ++c) {
+            exp_sum += std::exp(logits.at({b, c}) - max_logit);
+        }
+
+        size_t target_index = checked_class_index(targets.at({b}), classes);
+        float log_sum_exp = max_logit + std::log(exp_sum);
+        loss += log_sum_exp - logits.at({b, target_index});
+    }
+
+    return Tensor({1}, {loss / static_cast<float>(batch)});
+}
+
+Tensor Ops::mse_loss(const Tensor& pred, const Tensor& target) {
+    if (pred.shape() != target.shape()) {
+        throw std::invalid_argument("mse_loss requires equal-shaped tensors");
+    }
+    if (pred.size() == 0) {
+        throw std::invalid_argument("mse_loss requires non-empty tensors");
+    }
+
+    float loss = 0.0f;
+    for (size_t i = 0; i < pred.size(); ++i) {
+        float diff = pred.data()[i] - target.data()[i];
+        loss += diff * diff;
+    }
+
+    return Tensor({1}, {loss / static_cast<float>(pred.size())});
+}
+
+Tensor Ops::binary_cross_entropy(const Tensor& pred, const Tensor& target) {
+    if (pred.shape() != target.shape()) {
+        throw std::invalid_argument("binary_cross_entropy requires equal-shaped tensors");
+    }
+    if (pred.size() == 0) {
+        throw std::invalid_argument("binary_cross_entropy requires non-empty tensors");
+    }
+
+    float loss = 0.0f;
+    for (size_t i = 0; i < pred.size(); ++i) {
+        float x = pred.data()[i];
+        float y = target.data()[i];
+        loss += std::max(x, 0.0f) - x * y + std::log1p(std::exp(-std::fabs(x)));
+    }
+
+    return Tensor({1}, {loss / static_cast<float>(pred.size())});
 }
 
 Tensor Ops::conv2d(const Tensor& input, const Tensor& kernel,
@@ -320,6 +410,70 @@ void Ops::softmax_backward(const Tensor& dy, const Tensor& out,
     }
 }
 
+void Ops::cross_entropy_backward(const Tensor& logits, const Tensor& targets,
+                                 const Tensor& grad_output,
+                                 Tensor& grad_logits) {
+    if (grad_logits.shape() != logits.shape()) {
+        throw std::invalid_argument("cross_entropy_backward gradient shape mismatch");
+    }
+
+    size_t batch = logits.shape()[0];
+    size_t classes = logits.shape()[1];
+    if (batch == 0 || classes == 0) {
+        throw std::invalid_argument("cross_entropy_backward requires non-empty logits");
+    }
+
+    Tensor probs = softmax(logits);
+    float scale = grad_output.data()[0] / static_cast<float>(batch);
+
+    for (size_t b = 0; b < batch; ++b) {
+        size_t target_index = checked_class_index(targets.at({b}), classes);
+        for (size_t c = 0; c < classes; ++c) {
+            float grad = probs.at({b, c});
+            if (c == target_index) {
+                grad -= 1.0f;
+            }
+            grad_logits.at({b, c}) = grad * scale;
+        }
+    }
+}
+
+void Ops::mse_backward(const Tensor& pred, const Tensor& target,
+                       const Tensor& grad_output,
+                       Tensor& grad_pred, Tensor& grad_target) {
+    if (grad_pred.shape() != pred.shape() || grad_target.shape() != target.shape()) {
+        throw std::invalid_argument("mse_backward gradient shape mismatch");
+    }
+    if (pred.size() == 0) {
+        throw std::invalid_argument("mse_backward requires non-empty tensors");
+    }
+
+    float scale = 2.0f * grad_output.data()[0] / static_cast<float>(pred.size());
+    for (size_t i = 0; i < pred.size(); ++i) {
+        float grad = scale * (pred.data()[i] - target.data()[i]);
+        grad_pred.data()[i] = grad;
+        grad_target.data()[i] = -grad;
+    }
+}
+
+void Ops::bce_backward(const Tensor& pred, const Tensor& target,
+                       const Tensor& grad_output,
+                       Tensor& grad_pred, Tensor& grad_target) {
+    if (grad_pred.shape() != pred.shape() || grad_target.shape() != target.shape()) {
+        throw std::invalid_argument("bce_backward gradient shape mismatch");
+    }
+    if (pred.size() == 0) {
+        throw std::invalid_argument("bce_backward requires non-empty tensors");
+    }
+
+    float scale = grad_output.data()[0] / static_cast<float>(pred.size());
+    for (size_t i = 0; i < pred.size(); ++i) {
+        float sigmoid_x = 1.0f / (1.0f + std::exp(-pred.data()[i]));
+        grad_pred.data()[i] = scale * (sigmoid_x - target.data()[i]);
+        grad_target.data()[i] = -scale * pred.data()[i];
+    }
+}
+
 void Ops::conv2d_backward(const Tensor& dy, const Tensor& input,
                           const Tensor& kernel,
                           size_t stride_h, size_t stride_w,
@@ -380,6 +534,119 @@ void Ops::embedding_backward(const Tensor& dy, const Tensor& indices,
         size_t idx = static_cast<size_t>(indices.data()[i]);
         for (size_t d = 0; d < dim; ++d) {
             grad_weight.at({idx, d}) += dy.at({i, d});
+        }
+    }
+}
+
+Tensor Ops::dropout_forward(const Tensor& x, float rate, Tensor& mask) {
+    if (rate < 0.0f || rate >= 1.0f) {
+        throw std::invalid_argument("dropout rate must be in [0, 1)");
+    }
+
+    mask = Tensor(x.shape());
+    float scale = 1.0f / (1.0f - rate);
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+
+    Tensor result(x.shape());
+    for (size_t i = 0; i < x.size(); ++i) {
+        mask.data()[i] = (dist(rng) >= rate) ? scale : 0.0f;
+        result.data()[i] = x.data()[i] * mask.data()[i];
+    }
+    return result;
+}
+
+void Ops::dropout_backward(const Tensor& dy, const Tensor& mask,
+                           Tensor& grad_x) {
+    if (dy.shape() != mask.shape()) {
+        throw std::invalid_argument("dropout_backward shape mismatch");
+    }
+    for (size_t i = 0; i < dy.size(); ++i) {
+        grad_x.data()[i] = dy.data()[i] * mask.data()[i];
+    }
+}
+
+Tensor Ops::layer_norm(const Tensor& x, const Tensor* gamma,
+                       const Tensor* beta, float eps) {
+    if (x.ndim() < 1) {
+        throw std::invalid_argument("layer_norm requires at least 1D input");
+    }
+    size_t N = x.shape().back();
+    size_t batch = x.size() / N;
+
+    Tensor result(x.shape());
+    for (size_t b = 0; b < batch; ++b) {
+        float mean = 0.0f;
+        for (size_t i = 0; i < N; ++i) mean += x.data()[b * N + i];
+        mean /= static_cast<float>(N);
+
+        float var = 0.0f;
+        for (size_t i = 0; i < N; ++i) {
+            float diff = x.data()[b * N + i] - mean;
+            var += diff * diff;
+        }
+        var /= static_cast<float>(N);
+
+        float inv_std = 1.0f / std::sqrt(var + eps);
+        for (size_t i = 0; i < N; ++i) {
+            float y = (x.data()[b * N + i] - mean) * inv_std;
+            if (gamma) y *= gamma->data()[i];
+            if (beta) y += beta->data()[i];
+            result.data()[b * N + i] = y;
+        }
+    }
+    return result;
+}
+
+void Ops::layer_norm_backward(const Tensor& dy, const Tensor& x,
+                              const Tensor* gamma, const Tensor* beta,
+                              float eps, Tensor& grad_x,
+                              Tensor* grad_gamma, Tensor* grad_beta) {
+    (void)beta;
+    size_t N = x.shape().back();
+    size_t batch = x.size() / N;
+
+    std::vector<float> means(batch), inv_stds(batch);
+    for (size_t b = 0; b < batch; ++b) {
+        float mean = 0.0f;
+        for (size_t i = 0; i < N; ++i) mean += x.data()[b * N + i];
+        mean /= static_cast<float>(N);
+        means[b] = mean;
+
+        float var = 0.0f;
+        for (size_t i = 0; i < N; ++i) {
+            float diff = x.data()[b * N + i] - mean;
+            var += diff * diff;
+        }
+        var /= static_cast<float>(N);
+        inv_stds[b] = 1.0f / std::sqrt(var + eps);
+    }
+
+    for (size_t b = 0; b < batch; ++b) {
+        float inv_std = inv_stds[b];
+        float mean_dy = 0.0f, mean_dy_yhat = 0.0f;
+
+        for (size_t i = 0; i < N; ++i) {
+            float y_hat = (x.data()[b * N + i] - means[b]) * inv_std;
+            float w = gamma ? gamma->data()[i] : 1.0f;
+            mean_dy += dy.data()[b * N + i];
+            mean_dy_yhat += dy.data()[b * N + i] * y_hat;
+        }
+        mean_dy /= static_cast<float>(N);
+        mean_dy_yhat /= static_cast<float>(N);
+
+        for (size_t i = 0; i < N; ++i) {
+            float y_hat = (x.data()[b * N + i] - means[b]) * inv_std;
+            float w = gamma ? gamma->data()[i] : 1.0f;
+            float dx = (dy.data()[b * N + i] - mean_dy - y_hat * mean_dy_yhat) * inv_std * w;
+            grad_x.data()[b * N + i] = dx;
+
+            if (grad_gamma) {
+                grad_gamma->data()[i] += dy.data()[b * N + i] * y_hat;
+            }
+            if (grad_beta) {
+                grad_beta->data()[i] += dy.data()[b * N + i];
+            }
         }
     }
 }
